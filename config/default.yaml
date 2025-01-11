@@ -1,0 +1,57 @@
+# Superfan Default Configuration
+
+# IPMI Connection Settings
+ipmi:
+  host: localhost  # Use IP address for remote systems
+  username: ADMIN  # Default Supermicro IPMI username
+  password: ADMIN  # Default Supermicro IPMI password
+  interface: lanplus
+
+# Temperature Thresholds (in Celsius)
+temperature:
+  critical_max: 85  # Emergency threshold - will set fans to 100%
+  warning_max: 75   # Warning threshold - will increase fan speed
+  target: 65        # Desired operating temperature
+  hysteresis: 3     # Temperature change required before adjusting fans
+
+# Fan Control Settings
+fans:
+  polling_interval: 5  # Seconds between temperature checks
+  min_speed: 20       # Minimum fan speed percentage
+  max_speed: 100      # Maximum fan speed percentage
+  ramp_step: 5        # Maximum fan speed change per interval
+  
+  # Fan Zones Configuration
+  zones:
+    cpu:
+      enabled: true
+      sensors: ["CPU1 Temp", "CPU2 Temp"]
+      curve:
+        - [0, 20]    # [temp_delta, fan_speed]
+        - [10, 30]   # temp_delta is degrees above target
+        - [20, 50]   # fan_speed is percentage
+        - [30, 70]
+        - [40, 100]
+    
+    system:
+      enabled: true
+      sensors: ["System Temp", "Peripheral Temp"]
+      curve:
+        - [0, 20]
+        - [15, 40]
+        - [25, 60]
+        - [35, 80]
+        - [45, 100]
+
+# Safety Settings
+safety:
+  watchdog_timeout: 30    # Seconds before watchdog triggers
+  min_temp_readings: 2    # Required valid readings before fan adjustment
+  restore_on_exit: true   # Restore BMC control on program exit
+  
+# Logging Configuration
+logging:
+  level: INFO
+  file: superfan.log
+  max_size: 10MB
+  backup_count: 3
