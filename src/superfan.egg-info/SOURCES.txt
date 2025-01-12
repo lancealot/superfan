@@ -7,6 +7,7 @@ projectplan.md
 pyproject.toml
 requirements.txt
 setup.py
+uninstall.sh
 .github/workflows/ci.yml
 config/default.yaml
 src/superfan/__init__.py

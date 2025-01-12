@@ -30,14 +30,8 @@ class ControlManager:
         with open(config_path) as f:
             self.config = yaml.safe_load(f)
             
-        # Initialize IPMI
-        ipmi_config = self.config["ipmi"]
-        self.commander = IPMICommander(
-            host=ipmi_config["host"],
-            username=ipmi_config["username"],
-            password=ipmi_config["password"],
-            interface=ipmi_config["interface"]
-        )
+        # Initialize IPMI (use defaults for local access)
+        self.commander = IPMICommander()
         
         # Initialize sensor manager
         self.sensor_manager = SensorReader(

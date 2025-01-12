@@ -96,12 +96,17 @@ class IPMICommander:
             IPMIConnectionError: If connection fails
             IPMICommandError: If command execution fails
         """
-        base_cmd = [
-            "ipmitool", "-I", self.interface,
-            "-H", self.host,
-            "-U", self.username,
-            "-P", self.password
-        ]
+        # For local access, just use ipmitool
+        if self.host == "localhost":
+            base_cmd = ["ipmitool"]
+        else:
+            # For remote access, include connection parameters
+            base_cmd = [
+                "ipmitool", "-I", self.interface,
+                "-H", self.host,
+                "-U", self.username,
+                "-P", self.password
+            ]
         
         full_cmd = base_cmd + command.split()
         
