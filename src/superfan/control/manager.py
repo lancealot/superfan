@@ -12,7 +12,7 @@ from typing import Dict, Optional, List
 import yaml
 
 from ..ipmi import IPMICommander, IPMIError
-from ..ipmi.sensors import SensorManager
+from ..ipmi.sensors import SensorReader
 from .curve import FanCurve, LinearFanCurve, HysteresisFanCurve
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ class ControlManager:
         )
         
         # Initialize sensor manager
-        self.sensor_manager = SensorManager(
+        self.sensor_manager = SensorReader(
             commander=self.commander,
             reading_timeout=self.config["safety"]["watchdog_timeout"],
             min_readings=self.config["safety"]["min_temp_readings"]
