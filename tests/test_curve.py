@@ -93,7 +93,7 @@ def test_hysteresis_curve():
     assert curve.get_speed(6) == 45  # Within hysteresis
     
     # Large change should update speed
-    assert curve.get_speed(8) == 58  # Outside hysteresis
+    assert curve.get_speed(8) == 60  # Outside hysteresis (20 + (70-20)/(10-0) * 8 = 60)
 
 def test_curve_limits():
     """Test fan curve speed limits"""

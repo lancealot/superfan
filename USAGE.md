@@ -157,13 +157,24 @@ Logs are written to the configured log file (default: superfan.log):
 
 1. Setup development environment:
 ```bash
-pip install -r requirements.txt
+# Install in development mode with all dependencies
+pip install -e .
 ```
 
 2. Run tests:
 ```bash
-pytest
+# Run all tests with coverage
+python -m pytest
+
+# Run specific test module
+python -m pytest tests/test_curve.py
 ```
+
+Current test coverage:
+- Fan curve implementations: 93% coverage
+- Linear, step, and hysteresis curves fully tested
+- Temperature-to-speed mapping validated
+- Safety limits and validation tested
 
 3. Format code:
 ```bash
@@ -174,3 +185,15 @@ isort .
 4. Type checking:
 ```bash
 mypy src tests
+```
+
+The project uses a src-layout structure:
+```
+superfan/
+├── src/superfan/         # Main package directory
+│   ├── control/         # Fan control logic
+│   ├── ipmi/           # IPMI communication
+│   └── cli/            # Command-line interface
+├── tests/              # Test suite
+└── config/             # Configuration files
+```

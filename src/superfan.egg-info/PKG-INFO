@@ -1,3 +1,32 @@
+Metadata-Version: 2.2
+Name: superfan
+Version: 0.1.0
+Summary: Intelligent Supermicro server fan control
+Home-page: https://github.com/yourusername/superfan
+Author: Lance
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: System Administrators
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: POSIX :: Linux
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Topic :: System :: Hardware
+Classifier: Topic :: System :: Systems Administration
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: pyyaml>=5.1
+Dynamic: author
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
 # Superfan
 
 A Python utility for intelligent control of Supermicro server fan speeds based on component temperatures and user preferences.
@@ -23,40 +52,9 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
 git clone https://github.com/yourusername/superfan.git
 cd superfan
 
-# Install package in development mode
-pip install -e .
+# Install dependencies
+pip install -r requirements.txt
 ```
-
-## Development
-
-The project uses a src-layout with the following structure:
-
-```
-superfan/
-├── src/superfan/         # Main package directory
-│   ├── control/         # Fan control logic
-│   ├── ipmi/           # IPMI communication
-│   └── cli/            # Command-line interface
-├── tests/              # Test suite
-└── config/             # Configuration files
-```
-
-To run the tests:
-
-```bash
-# Run all tests with coverage
-python -m pytest
-
-# Run specific test file
-python -m pytest tests/test_curve.py
-```
-
-The test suite includes comprehensive tests for:
-- Fan curve implementations (linear, step, and hysteresis)
-- Temperature-to-speed mapping
-- Safety limits and validation
-- IPMI communication
-- Control loop logic
 
 ## Usage
 
