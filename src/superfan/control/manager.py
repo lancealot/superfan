@@ -13,7 +13,7 @@ import yaml
 
 from ..ipmi import IPMICommander, IPMIError
 from ..ipmi.sensors import SensorReader
-from .curve import FanCurve, LinearFanCurve, HysteresisFanCurve
+from .curve import FanCurve, LinearCurve, HysteresisCurve
 
 logger = logging.getLogger(__name__)
 
@@ -70,14 +70,14 @@ class ControlManager:
                 continue
                 
             # Create base curve
-            base_curve = LinearFanCurve(
+            base_curve = LinearCurve(
                 points=zone_config["curve"],
                 min_speed=fan_config["min_speed"],
                 max_speed=fan_config["max_speed"]
             )
             
             # Wrap with hysteresis
-            self.fan_curves[zone_name] = HysteresisFanCurve(
+            self.fan_curves[zone_name] = HysteresisCurve(
                 base_curve=base_curve,
                 hysteresis=self.config["temperature"]["hysteresis"]
             )

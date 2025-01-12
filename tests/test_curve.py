@@ -5,12 +5,12 @@ This module contains tests for the fan curve implementations.
 """
 
 import pytest
-from superfan.control.curve import LinearFanCurve, StepFanCurve, HysteresisFanCurve
+from superfan.control.curve import LinearCurve, StepCurve, HysteresisCurve
 
 def test_linear_curve_basic():
     """Test basic linear fan curve functionality"""
     # Create curve with two points
-    curve = LinearFanCurve(
+    curve = LinearCurve(
         points=[(0, 20), (10, 70)],
         min_speed=20,
         max_speed=100
@@ -31,26 +31,26 @@ def test_linear_curve_validation():
     """Test linear fan curve validation"""
     # Test empty points
     with pytest.raises(ValueError):
-        LinearFanCurve(points=[])
+        LinearCurve(points=[])
     
     # Test invalid speed values
     with pytest.raises(ValueError):
-        LinearFanCurve(points=[(0, -10), (10, 50)])
+        LinearCurve(points=[(0, -10), (10, 50)])
     with pytest.raises(ValueError):
-        LinearFanCurve(points=[(0, 110), (10, 50)])
+        LinearCurve(points=[(0, 110), (10, 50)])
     
     # Test invalid temperature values
     with pytest.raises(ValueError):
-        LinearFanCurve(points=[(-5, 50), (10, 50)])
+        LinearCurve(points=[(-5, 50), (10, 50)])
     
     # Test duplicate temperatures
     with pytest.raises(ValueError):
-        LinearFanCurve(points=[(5, 50), (5, 60)])
+        LinearCurve(points=[(5, 50), (5, 60)])
 
 def test_step_curve_basic():
     """Test basic step fan curve functionality"""
     # Create curve with three steps
-    curve = StepFanCurve(
+    curve = StepCurve(
         steps=[(0, 20), (5, 50), (10, 80)],
         min_speed=20,
         max_speed=100
@@ -73,14 +73,14 @@ def test_step_curve_basic():
 def test_hysteresis_curve():
     """Test hysteresis fan curve functionality"""
     # Create base linear curve
-    base_curve = LinearFanCurve(
+    base_curve = LinearCurve(
         points=[(0, 20), (10, 70)],
         min_speed=20,
         max_speed=100
     )
     
     # Create hysteresis wrapper
-    curve = HysteresisFanCurve(
+    curve = HysteresisCurve(
         base_curve=base_curve,
         hysteresis=2.0,
         min_hold_time=0.0  # No hold time for testing
@@ -98,7 +98,7 @@ def test_hysteresis_curve():
 def test_curve_limits():
     """Test fan curve speed limits"""
     # Create curve with configured limits
-    curve = LinearFanCurve(
+    curve = LinearCurve(
         points=[(0, 0), (10, 100)],
         min_speed=30,
         max_speed=90

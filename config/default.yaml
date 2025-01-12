@@ -1,11 +1,12 @@
 # Superfan Default Configuration
 
-# IPMI Connection Settings
+# IPMI Settings
 ipmi:
-  host: localhost  # Use IP address for remote systems
-  username: ADMIN  # Default Supermicro IPMI username
-  password: ADMIN  # Default Supermicro IPMI password
-  interface: lanplus
+  # No configuration needed for local IPMI access
+  # For remote systems, uncomment and configure:
+  # host: 192.168.1.100
+  # username: ADMIN
+  # password: ADMIN
 
 # Temperature Thresholds (in Celsius)
 temperature:

@@ -18,7 +18,7 @@ class FanCurve:
         raise NotImplementedError
 
 
-class LinearFanCurve(FanCurve):
+class LinearCurve(FanCurve):
     """Linear interpolation between temperature/speed points."""
     
     def __init__(self, points: List[Tuple[float, float]], min_speed: float = 0, max_speed: float = 100):
@@ -90,7 +90,7 @@ class LinearFanCurve(FanCurve):
         return max(self.min_speed, min(self.max_speed, speed))
 
 
-class StepFanCurve(FanCurve):
+class StepCurve(FanCurve):
     """Step function between temperature/speed points."""
     
     def __init__(self, steps: List[Tuple[float, float]], min_speed: float = 0, max_speed: float = 100):
@@ -148,7 +148,7 @@ class StepFanCurve(FanCurve):
         return max(self.min_speed, min(self.max_speed, self.points[idx-1][1]))
 
 
-class HysteresisFanCurve(FanCurve):
+class HysteresisCurve(FanCurve):
     """Adds hysteresis to another curve type."""
     
     def __init__(self, base_curve: FanCurve, hysteresis: float = 3.0, min_hold_time: float = 0.0):

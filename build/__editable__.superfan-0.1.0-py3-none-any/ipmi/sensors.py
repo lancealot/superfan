@@ -1,1 +1,0 @@
-/home/lance/Documents/superfan/src/ipmi/sensors.py

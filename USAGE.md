@@ -5,7 +5,13 @@
 1. Install system dependencies:
 ```bash
 sudo apt-get install ipmitool
+
+# Ensure IPMI device access
+sudo modprobe ipmi_devintf
+sudo modprobe ipmi_si
 ```
+
+Note: Root privileges (sudo) are required for IPMI operations.
 
 2. Install the package:
 ```bash
@@ -20,10 +26,11 @@ The default configuration file is installed at `/etc/superfan/config.yaml`. You 
 
 ```yaml
 ipmi:
-  host: localhost
-  username: ADMIN
-  password: ADMIN
-  interface: lanplus
+  # No configuration needed for local IPMI access
+  # For remote systems, uncomment and configure:
+  # host: 192.168.1.100
+  # username: ADMIN
+  # password: ADMIN
 
 temperature:
   critical_max: 85
@@ -103,7 +110,7 @@ The monitoring display (`--monitor`) shows:
 1. IPMI Connection Issues
 ```bash
 # Test IPMI connection
-ipmitool -I lanplus -H localhost -U ADMIN -P ADMIN sdr list
+ipmitool sdr list
 ```
 
 2. Sensor Discovery

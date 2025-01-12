@@ -120,6 +120,13 @@ superfan/
      * IPMI commander (currently 27%)
      * IPMI sensors (currently 28%)
 
+2. Bug Fixes
+   - Fixed class name inconsistencies in control module:
+     * Renamed LinearFanCurve to LinearCurve
+     * Renamed StepFanCurve to StepCurve
+     * Renamed HysteresisFanCurve to HysteresisCurve
+     * Updated imports in manager.py and __init__.py
+
 2. Integration Tests
    - End-to-end control flow
    - Temperature response

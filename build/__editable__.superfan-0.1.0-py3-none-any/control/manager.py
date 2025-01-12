@@ -1,1 +1,0 @@
-/home/lance/Documents/superfan/src/control/manager.py

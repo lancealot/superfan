@@ -1,3 +1,5 @@
+.coverage
+.gitignore
 LICENSE
 README.md
 USAGE.md
@@ -7,7 +9,6 @@ requirements.txt
 setup.py
 .github/workflows/ci.yml
 config/default.yaml
-src/__init__.py
 src/superfan/__init__.py
 src/superfan.egg-info/PKG-INFO
 src/superfan.egg-info/SOURCES.txt
@@ -15,12 +16,16 @@ src/superfan.egg-info/dependency_links.txt
 src/superfan.egg-info/entry_points.txt
 src/superfan.egg-info/requires.txt
 src/superfan.egg-info/top_level.txt
+src/superfan/__pycache__/__init__.cpython-312.pyc
 src/superfan/cli/__init__.py
 src/superfan/cli/interface.py
 src/superfan/control/__init__.py
 src/superfan/control/curve.py
 src/superfan/control/manager.py
+src/superfan/control/__pycache__/__init__.cpython-312.pyc
+src/superfan/control/__pycache__/curve.cpython-312.pyc
 src/superfan/ipmi/__init__.py
 src/superfan/ipmi/commander.py
 src/superfan/ipmi/sensors.py
 tests/test_curve.py
+tests/__pycache__/test_curve.cpython-312-pytest-8.3.4.pyc
