@@ -1,15 +1,12 @@
-"""
-Control package for Superfan
-
-This package provides modules for fan speed control logic,
-including fan curves and control loop management.
-"""
+"""Fan control module."""
 
 from .curve import FanCurve, LinearFanCurve, StepFanCurve, HysteresisFanCurve
+from .manager import ControlManager
 
 __all__ = [
     'FanCurve',
     'LinearFanCurve',
     'StepFanCurve',
-    'HysteresisFanCurve'
+    'HysteresisFanCurve',
+    'ControlManager'
 ]
