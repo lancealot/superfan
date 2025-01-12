@@ -8,6 +8,7 @@ fan speeds based on temperature readings.
 import logging
 import time
 import threading
+import re
 from typing import Dict, Optional, List
 import yaml
 
@@ -33,9 +34,20 @@ class ControlManager:
         # Initialize IPMI (use defaults for local access)
         self.commander = IPMICommander()
         
-        # Initialize sensor manager
+        # Initialize sensor manager with patterns
+        sensor_patterns = []
+        for zone_config in self.config["fans"]["zones"].values():
+            if zone_config["enabled"]:
+                # Convert sensor names to patterns
+                for sensor in zone_config["sensors"]:
+                    # Replace exact names with patterns
+                    # e.g. "CPU1 Temp" becomes "*CPU* Temp*"
+                    pattern = f"*{sensor.replace('1', '*').replace('2', '*')}*"
+                    sensor_patterns.append(pattern)
+        
         self.sensor_manager = SensorReader(
             commander=self.commander,
+            sensor_patterns=sensor_patterns,
             reading_timeout=self.config["safety"]["watchdog_timeout"],
             min_readings=self.config["safety"]["min_temp_readings"]
         )
@@ -87,18 +99,25 @@ class ControlManager:
         Returns:
             Temperature delta above target, or None if no valid reading
         """
-        # Get configured sensors for zone
+        # Get configured sensor patterns for zone
         zone_config = self.config["fans"]["zones"][zone_name]
-        sensor_names = zone_config["sensors"]
+        base_sensors = zone_config["sensors"]
         
-        # Get highest temperature from zone sensors
+        # Get highest temperature from matching sensors
         highest_temp = None
-        for sensor in sensor_names:
-            stats = self.sensor_manager.get_sensor_stats(sensor)
-            if stats:
-                temp = stats["current"]
-                if highest_temp is None or temp > highest_temp:
-                    highest_temp = temp
+        for base_sensor in base_sensors:
+            # Create pattern for this sensor
+            pattern = f"*{base_sensor.replace('1', '*').replace('2', '*')}*"
+            pattern_re = re.compile(pattern.replace("*", ".*"), re.IGNORECASE)
+            
+            # Check all discovered sensors against this pattern
+            for sensor_name in self.sensor_manager.get_sensor_names():
+                if pattern_re.match(sensor_name):
+                    stats = self.sensor_manager.get_sensor_stats(sensor_name)
+                    if stats:
+                        temp = stats["current"]
+                        if highest_temp is None or temp > highest_temp:
+                            highest_temp = temp
                     
         if highest_temp is None:
             return None
@@ -106,6 +125,51 @@ class ControlManager:
         # Calculate delta from target
         target_temp = self.config["temperature"]["target"]
         return max(0, highest_temp - target_temp)
+
+    def _verify_fan_speeds(self, min_speed: int = None) -> bool:
+        """Verify fan speeds are within acceptable range
+        
+        Args:
+            min_speed: Minimum acceptable speed (None for config value)
+            
+        Returns:
+            True if fans are operating correctly
+        """
+        try:
+            readings = self.commander.get_sensor_readings()
+            fan_readings = [r for r in readings if r["name"].startswith("FAN")]
+            
+            if not fan_readings:
+                logger.error("No fan readings available")
+                return False
+                
+            min_speed = min_speed or self.config["fans"]["min_speed"]
+            responsive_fans = 0
+            
+            for fan in fan_readings:
+                name = fan["name"]
+                if fan["state"] == "ns":
+                    logger.warning(f"{name} is not responding")
+                    continue
+                    
+                rpm = fan["value"]
+                if rpm < 100:  # RPM too low - likely stopped
+                    logger.error(f"{name} appears stopped: {rpm} RPM")
+                    return False
+                    
+                responsive_fans += 1
+                
+            # Ensure we have enough working fans
+            min_fans = self.config["safety"].get("min_working_fans", 1)
+            if responsive_fans < min_fans:
+                logger.error(f"Insufficient working fans: {responsive_fans} < {min_fans}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"Fan speed verification failed: {e}")
+            return False
 
     def _check_safety(self) -> bool:
         """Check system safety conditions
@@ -118,12 +182,20 @@ class ControlManager:
             self.sensor_manager.update_readings()
             self._last_valid_reading = time.time()
             
-            # Check maximum temperature
-            max_temp = self.sensor_manager.get_highest_temperature()
-            if max_temp is None:
-                logger.error("No valid temperature readings")
+            # Update readings and check states
+            readings = self.commander.get_sensor_readings()
+            for reading in readings:
+                if reading["state"] == "cr":
+                    logger.error(f"Critical state detected for {reading['name']}")
+                    return False
+            
+            # Check temperatures
+            temp_readings = [r for r in readings if "temp" in r["name"].lower()]
+            if not temp_readings:
+                logger.error("No temperature readings available")
                 return False
-                
+            
+            max_temp = max(r["value"] for r in temp_readings if r["value"] is not None)
             if max_temp >= self.config["temperature"]["critical_max"]:
                 logger.error(f"Critical temperature reached: {max_temp}°C")
                 return False
@@ -132,6 +204,10 @@ class ControlManager:
             reading_age = time.time() - self._last_valid_reading
             if reading_age > self.config["safety"]["watchdog_timeout"]:
                 logger.error(f"Temperature reading timeout: {reading_age:.1f}s")
+                return False
+                
+            # Verify fan speeds
+            if not self._verify_fan_speeds():
                 return False
                 
             return True
@@ -147,11 +223,24 @@ class ControlManager:
             self.commander.set_fan_speed(100)
             logger.warning("Emergency action: fans set to 100%")
             
+            # Verify fan response
+            if not self._verify_fan_speeds(min_speed=90):  # Expect near max speed
+                logger.error("Emergency fan speed change failed")
+                # Try to restore BMC control as last resort
+                self.commander.set_auto_mode()
+                logger.warning("Emergency fallback: restored BMC control")
+            
             # Set emergency flag
             self._in_emergency = True
             
         except Exception as e:
             logger.error(f"Emergency action failed: {e}")
+            # Try to restore BMC control
+            try:
+                self.commander.set_auto_mode()
+                logger.warning("Emergency fallback: restored BMC control")
+            except Exception as fallback_error:
+                logger.critical(f"Failed to restore BMC control: {fallback_error}")
 
     def _control_loop(self) -> None:
         """Main control loop"""

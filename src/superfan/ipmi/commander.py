@@ -17,6 +17,7 @@ class MotherboardGeneration(Enum):
     X9 = "X9"
     X10 = "X10"
     X11 = "X11"
+    H12 = "H12"  # AMD EPYC 7002 series
     X13 = "X13"
     UNKNOWN = "UNKNOWN"
 
@@ -35,10 +36,18 @@ class IPMICommandError(IPMIError):
 class IPMICommander:
     """Handles IPMI command execution and fan control operations"""
 
+    # Known dangerous commands that should never be executed
+    BLACKLISTED_COMMANDS = {
+        # Commands that affect fan/sensor behavior
+        (0x06, 0x01),  # Get supported commands - causes fans to drop speed
+        (0x06, 0x02),  # Get OEM commands - may affect sensor readings
+    }
+
     # IPMI raw commands for different board generations
     COMMANDS = {
         # Common commands across generations
         "GET_BOARD_ID": "mc info",
+        "GET_DMI_INFO": "sudo dmidecode -t baseboard",
         
         # Fan control commands by generation
         MotherboardGeneration.X9: {
@@ -51,8 +60,13 @@ class IPMICommander:
             "SET_AUTO_MODE": "raw 0x30 0x45 0x01 0x00",
             "SET_FAN_SPEED": "raw 0x30 0x70 0x66 0x01 0x00",  # Append hex speed
         },
-        # X11 uses same commands as X10
+        # X11/H12 use same commands as X10
         MotherboardGeneration.X11: {
+            "SET_MANUAL_MODE": "raw 0x30 0x45 0x01 0x01",
+            "SET_AUTO_MODE": "raw 0x30 0x45 0x01 0x00",
+            "SET_FAN_SPEED": "raw 0x30 0x70 0x66 0x01 0x00",  # Append hex speed
+        },
+        MotherboardGeneration.H12: {
             "SET_MANUAL_MODE": "raw 0x30 0x45 0x01 0x01",
             "SET_AUTO_MODE": "raw 0x30 0x45 0x01 0x00",
             "SET_FAN_SPEED": "raw 0x30 0x70 0x66 0x01 0x00",  # Append hex speed
@@ -83,6 +97,45 @@ class IPMICommander:
         # Detect board generation on init
         self.detect_board_generation()
 
+    def _validate_raw_command(self, command: str) -> None:
+        """Validate a raw IPMI command for safety
+
+        Args:
+            command: Raw IPMI command string
+
+        Raises:
+            IPMIError: If command is blacklisted or invalid
+        """
+        # Parse raw command format (e.g., "raw 0x30 0x45 0x01 0x01")
+        parts = command.split()
+        if len(parts) < 3 or parts[0] != "raw":
+            return  # Not a raw command, skip validation
+            
+        try:
+            # Convert hex strings to integers
+            netfn = int(parts[1], 16)
+            cmd = int(parts[2], 16)
+            
+            # Check against blacklist
+            if (netfn, cmd) in self.BLACKLISTED_COMMANDS:
+                raise IPMIError(f"Command {hex(netfn)} {hex(cmd)} is blacklisted for safety")
+                
+            # Additional safety checks for fan control
+            if netfn == 0x30:  # Fan control commands
+                if cmd == 0x45:  # Mode control
+                    if len(parts) >= 5:
+                        mode = int(parts[4], 16)
+                        if mode not in [0x00, 0x01]:  # Only allow get mode and manual/auto
+                            raise IPMIError(f"Invalid fan mode: {hex(mode)}")
+                elif cmd in [0x70, 0x91]:  # Fan speed control
+                    if len(parts) >= 7:
+                        speed = int(parts[-1], 16)
+                        if speed < 0x19:  # Minimum 10% (0x19)
+                            raise IPMIError(f"Fan speed too low: {hex(speed)}")
+                            
+        except ValueError as e:
+            raise IPMIError(f"Invalid command format: {e}")
+
     def _execute_ipmi_command(self, command: str) -> str:
         """Execute an IPMI command and return its output
 
@@ -95,7 +148,11 @@ class IPMICommander:
         Raises:
             IPMIConnectionError: If connection fails
             IPMICommandError: If command execution fails
+            IPMIError: If command is invalid or unsafe
         """
+        # Validate command safety
+        self._validate_raw_command(command)
+        
         # For local access, just use ipmitool
         if self.host == "localhost":
             base_cmd = ["ipmitool"]
@@ -109,7 +166,6 @@ class IPMICommander:
             ]
         
         full_cmd = base_cmd + command.split()
-        
         try:
             result = subprocess.run(
                 full_cmd,
@@ -135,33 +191,78 @@ class IPMICommander:
             IPMIError: If board generation cannot be determined
         """
         try:
+            # First try dmidecode for most accurate information
+            try:
+                dmi_output = subprocess.run(
+                    ["sudo", "dmidecode", "-t", "baseboard"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                ).stdout.lower()
+                
+                # Check for H12 series explicitly
+                if "h12" in dmi_output:
+                    self.board_gen = MotherboardGeneration.H12
+                    logger.info("Detected H12 series board via DMI")
+                    return self.board_gen
+                
+            except subprocess.CalledProcessError:
+                logger.warning("Failed to get DMI info, falling back to IPMI detection")
+            
+            # Fall back to IPMI detection
             output = self._execute_ipmi_command(self.COMMANDS["GET_BOARD_ID"])
+            board_info = output.lower()
             
-            # Extract board info from output
-            for line in output.splitlines():
-                if "Product ID" in line:
-                    # Parse product ID to determine generation
-                    if "X9" in line:
-                        self.board_gen = MotherboardGeneration.X9
-                    elif "X10" in line:
-                        self.board_gen = MotherboardGeneration.X10
-                    elif "X11" in line:
-                        self.board_gen = MotherboardGeneration.X11
-                    elif "X13" in line:
-                        self.board_gen = MotherboardGeneration.X13
-                    else:
-                        self.board_gen = MotherboardGeneration.UNKNOWN
-                    break
-            
+            # Try different detection methods
+            if any(x in board_info for x in ["x13", "h13", "b13"]):
+                self.board_gen = MotherboardGeneration.X13
+            elif any(x in board_info for x in ["h12", "b12"]):
+                self.board_gen = MotherboardGeneration.H12
+            elif any(x in board_info for x in ["x11", "h11", "b11"]):
+                self.board_gen = MotherboardGeneration.X11
+            elif any(x in board_info for x in ["x10", "h10", "b10"]):
+                self.board_gen = MotherboardGeneration.X10
+            elif any(x in board_info for x in ["x9", "h9", "b9"]):
+                self.board_gen = MotherboardGeneration.X9
+            else:
+                # Try to detect from firmware version
+                for line in output.splitlines():
+                    if "Firmware Revision" in line:
+                        version = line.lower()
+                        if "3." in version:
+                            self.board_gen = MotherboardGeneration.X13
+                        elif "2." in version:
+                            self.board_gen = MotherboardGeneration.X11
+                        elif "1." in version:
+                            self.board_gen = MotherboardGeneration.X10
+                        break
+                
             if not self.board_gen:
                 self.board_gen = MotherboardGeneration.UNKNOWN
                 raise IPMIError("Could not determine board generation")
                 
+            logger.info(f"Detected board generation: {self.board_gen.value}")
             return self.board_gen
             
         except Exception as e:
             self.board_gen = MotherboardGeneration.UNKNOWN
             raise IPMIError(f"Failed to detect board generation: {str(e)}")
+
+    def get_fan_mode(self) -> bool:
+        """Get current fan control mode
+        
+        Returns:
+            True if in manual mode, False if in automatic mode
+        
+        Raises:
+            IPMIError: If mode cannot be determined
+        """
+        try:
+            result = self._execute_ipmi_command("raw 0x30 0x45 0x00")
+            # Returns "01" for manual mode, "00" for auto mode
+            return result.strip() == "01"
+        except Exception as e:
+            raise IPMIError(f"Failed to get fan mode: {e}")
 
     def set_manual_mode(self) -> None:
         """Set fan control to manual mode"""
@@ -170,6 +271,11 @@ class IPMICommander:
             
         command = self.COMMANDS[self.board_gen]["SET_MANUAL_MODE"]
         self._execute_ipmi_command(command)
+        
+        # Verify mode change
+        if not self.get_fan_mode():
+            raise IPMIError("Failed to enter manual mode")
+            
         logger.info("Fan control set to manual mode")
 
     def set_auto_mode(self) -> None:
@@ -179,6 +285,11 @@ class IPMICommander:
             
         command = self.COMMANDS[self.board_gen]["SET_AUTO_MODE"]
         self._execute_ipmi_command(command)
+        
+        # Verify mode change
+        if self.get_fan_mode():
+            raise IPMIError("Failed to enter automatic mode")
+            
         logger.info("Fan control restored to automatic mode")
 
     def set_fan_speed(self, speed_percent: int) -> None:
@@ -207,26 +318,92 @@ class IPMICommander:
         self._execute_ipmi_command(command)
         logger.info(f"Fan speed set to {speed_percent}%")
 
-    def get_sensor_readings(self) -> List[Dict[str, Union[str, float]]]:
+    def get_sensor_readings(self) -> List[Dict[str, Union[str, float, int]]]:
         """Get temperature sensor readings
 
         Returns:
-            List of sensor readings with name and value
+            List of sensor readings with name, value, state and response ID
         """
         output = self._execute_ipmi_command("sdr list")
         readings = []
+        response_id = None
         
         for line in output.splitlines():
+            # Check for response ID message
+            if "Received a response with unexpected ID" in line:
+                try:
+                    response_id = int(line.split()[-1])
+                    logger.warning(f"Unexpected IPMI response ID: {response_id}")
+                    continue
+                except (ValueError, IndexError):
+                    continue
+            
             parts = line.split('|')
-            if len(parts) >= 3 and "degrees C" in line:
+            if len(parts) >= 3:  # We need at least name, value, and state
                 try:
                     name = parts[0].strip()
-                    value = float(parts[1].strip().split()[0])
-                    readings.append({
+                    value_part = parts[1].strip()
+                    state = parts[2].strip().lower()
+                    
+                    # Parse value if present
+                    value = None
+                    if "degrees C" in value_part:
+                        try:
+                            value = float(value_part.split()[0])
+                        except (ValueError, IndexError):
+                            pass
+                    elif "RPM" in value_part:
+                        try:
+                            value = float(value_part.split()[0])
+                        except (ValueError, IndexError):
+                            pass
+                    
+                    reading = {
                         "name": name,
-                        "value": value
-                    })
-                except (ValueError, IndexError):
+                        "value": value,
+                        "state": state,  # 'ok', 'cr', or 'ns'
+                        "response_id": response_id
+                    }
+                    
+                    readings.append(reading)
+                    
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Failed to parse sensor reading: {line} - {str(e)}")
                     continue
                     
         return readings
+
+    def verify_fan_speed(self, target_speed: int, tolerance: int = 10) -> bool:
+        """Verify fan speeds are near the target value
+
+        Args:
+            target_speed: Target speed percentage
+            tolerance: Acceptable percentage deviation
+
+        Returns:
+            True if fans are operating within tolerance
+        """
+        readings = self.get_sensor_readings()
+        fan_readings = [r for r in readings if r["name"].startswith("FAN")]
+        
+        if not fan_readings:
+            logger.error("No fan readings available")
+            return False
+            
+        # Convert target speed percentage to expected RPM range
+        # This is a rough approximation - would need calibration per system
+        base_rpm = 1800  # Typical max RPM
+        expected_rpm = (target_speed / 100.0) * base_rpm
+        min_rpm = expected_rpm * (1 - tolerance/100.0)
+        
+        working_fans = 0
+        for fan in fan_readings:
+            if fan["state"] == "ns":
+                continue
+                
+            rpm = fan["value"]
+            if rpm is not None and rpm > min_rpm:
+                working_fans += 1
+                
+        # Require at least 2 working fans
+        return working_fans >= 2

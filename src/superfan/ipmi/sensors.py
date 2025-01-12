@@ -7,7 +7,8 @@ for Supermicro servers using IPMI.
 
 import logging
 import time
-from typing import Dict, List, Optional, Set
+import re
+from typing import Dict, List, Optional, Set, Pattern
 from dataclasses import dataclass
 from statistics import mean, stdev
 from .commander import IPMICommander, IPMIError
@@ -20,17 +21,29 @@ class SensorReading:
     name: str
     value: float
     timestamp: float
+    state: str  # 'ok', 'cr' (critical), or 'ns' (no reading)
+    response_id: Optional[int] = None  # Track IPMI response ID
 
     @property
     def age(self) -> float:
         """Get age of reading in seconds"""
         return time.time() - self.timestamp
 
+    @property
+    def is_critical(self) -> bool:
+        """Check if sensor is in critical state"""
+        return self.state == 'cr'
+
+    @property
+    def is_valid(self) -> bool:
+        """Check if sensor reading is valid"""
+        return self.state != 'ns' and self.value is not None
+
 class SensorReader:
     """Manages temperature sensor monitoring and data processing"""
 
     def __init__(self, commander: IPMICommander, 
-                 sensor_names: Optional[List[str]] = None,
+                 sensor_patterns: Optional[List[str]] = None,
                  reading_timeout: float = 30.0,
                  min_readings: int = 2):
         """Initialize sensor manager
@@ -42,7 +55,15 @@ class SensorReader:
             min_readings: Minimum number of valid readings required
         """
         self.commander = commander
-        self.sensor_names = set(sensor_names) if sensor_names else set()
+        # Convert patterns to regex objects
+        self.sensor_patterns = []
+        if sensor_patterns:
+            for pattern in sensor_patterns:
+                # Convert glob-style patterns to regex
+                regex = pattern.replace("*", ".*").replace("?", ".")
+                self.sensor_patterns.append(re.compile(regex, re.IGNORECASE))
+        
+        self.sensor_names: Set[str] = set()
         self.reading_timeout = reading_timeout
         self.min_readings = min_readings
         
@@ -54,10 +75,21 @@ class SensorReader:
             self._discover_sensors()
 
     def _discover_sensors(self) -> None:
-        """Discover available temperature sensors"""
+        """Discover available temperature sensors matching patterns"""
         try:
             readings = self.commander.get_sensor_readings()
-            self.sensor_names = {r["name"] for r in readings}
+            # If no patterns specified, include all sensors
+            if not self.sensor_patterns:
+                self.sensor_names = {r["name"] for r in readings}
+            else:
+                # Match sensors against patterns
+                self.sensor_names = set()
+                for reading in readings:
+                    name = reading["name"]
+                    for pattern in self.sensor_patterns:
+                        if pattern.match(name):
+                            self.sensor_names.add(name)
+                            break
             logger.info(f"Discovered sensors: {', '.join(self.sensor_names)}")
         except IPMIError as e:
             logger.error(f"Failed to discover sensors: {e}")
@@ -69,15 +101,24 @@ class SensorReader:
             current_time = time.time()
             readings = self.commander.get_sensor_readings()
             
+            # Track critical sensors for immediate notification
+            critical_sensors = []
+            
             # Process each reading
             for reading in readings:
                 name = reading["name"]
                 if name in self.sensor_names:
                     sensor_reading = SensorReading(
                         name=name,
-                        value=reading["value"],
-                        timestamp=current_time
+                        value=reading.get("value"),
+                        timestamp=current_time,
+                        state=reading.get("state", "ns"),
+                        response_id=reading.get("response_id")
                     )
+
+                    # Check for critical state
+                    if sensor_reading.is_critical:
+                        critical_sensors.append(f"{name}: {sensor_reading.value}°C")
                     
                     # Initialize list if needed
                     if name not in self._readings:
@@ -92,7 +133,16 @@ class SensorReader:
                         if r.age <= self.reading_timeout
                     ]
             
+            # Log critical sensors immediately
+            if critical_sensors:
+                logger.error(f"Critical temperature alerts: {', '.join(critical_sensors)}")
+
             logger.debug(f"Updated {len(readings)} sensor readings")
+
+            # Validate response IDs
+            response_ids = {r.response_id for r in self._readings.values() if r.response_id is not None}
+            if len(response_ids) > 1:
+                logger.warning(f"Inconsistent IPMI response IDs detected: {response_ids}")
             
         except IPMIError as e:
             logger.error(f"Failed to update sensor readings: {e}")

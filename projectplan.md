@@ -92,6 +92,10 @@ superfan/
 - Temperature trending
 - Emergency thermal protection
 - Logging and diagnostics
+- Flexible sensor name matching
+  * Pattern-based sensor matching for different motherboards
+  * Auto-detection of equivalent sensors
+  * Fallback sensor selection logic
 
 ## Safety Considerations
 1. Temperature Limits
@@ -110,7 +114,74 @@ superfan/
    - Configuration validation
 
 ## Testing Strategy
-1. Unit Tests
+1. Critical Issues Found (Latest Testing)
+   - H12 Board Support:
+     * Board detection working correctly via DMI info
+     * Basic fan control commands (0x30 0x45) confirmed working
+     * Fan speed command (0x30 0x70) verified working:
+       - Fans respond proportionally to speed changes
+       - Each fan has specific RPM ranges:
+         * FAN1: 1400-1820 RPM
+         * FAN2-4: 1120-1400 RPM
+         * FAN5: 1680-1820 RPM
+         * FANA: 3500-3640 RPM
+         * FANB: Non-responsive (expected)
+     * X9-style commands not supported (0x30 0x91)
+     * Command validation implemented:
+       - Blacklisted dangerous commands (0x06 0x01, 0x06 0x02)
+       - Added minimum speed enforcement
+       - Added mode verification
+       - Added command format validation
+     * CRITICAL: Command 0x06 0x01 (get supported commands) causes:
+       - Fans to drop to minimum speed
+       - Sensors to return 'na' values
+       - Potentially unsafe thermal conditions
+     * Remaining Tasks:
+       - Calibrate fan curves based on observed RPM ranges
+       - Implement gradual speed changes to prevent sudden transitions
+       - Add per-fan RPM verification after speed changes
+
+   - Safety Concerns:
+     * Some fans stop completely at 10% speed instead of maintaining minimum speed
+     * No enforcement of minimum fan speed in manual mode
+     * M2_SSD1 temperature reached critical state (71°C) during testing
+     * FANB consistently shows no reading (expected behavior)
+     * Fan speed changes not properly verified
+
+   - IPMI Communication Issues:
+     * Unexpected IPMI response IDs received during sensor readings
+     * Need to implement better error handling for IPMI responses
+     * Command failures not properly handled
+
+   - Required Code Changes:
+     * commander.py:
+       - Add H12-specific command validation
+       - Implement fan speed command verification
+       - Add retry logic for failed commands
+       - Add command response validation
+       - Calibrate fan speed ranges for H12
+
+     * sensors.py:
+       - Add sensor state tracking (ok/cr/ns) in SensorReading class
+       - Implement critical state detection and immediate alerting
+       - Add validation for IPMI response IDs
+       - Add retry mechanism for failed sensor readings
+       
+     * manager.py:
+       - Add fan speed verification after changes
+       - Implement per-fan minimum speed enforcement
+       - Add handling for non-responsive fans
+       - Add emergency action verification
+       - Implement fan speed ramping to prevent sudden changes
+       
+     * New Safety Features Needed:
+       - Hardware-level minimum speed enforcement
+       - Immediate temperature threshold monitoring in manual mode
+       - Fan failure detection and failover
+       - Temperature trend analysis for predictive action
+       - Board-specific safety limits and thresholds
+
+2. Unit Tests
    - IPMI command formation
    - Fan curve calculations (85% coverage achieved)
    - Configuration parsing
@@ -141,9 +212,22 @@ superfan/
    - Temperature limit responses
    - Communication loss recovery
    - Verified functionality:
-     * Manual mode entry/exit works
-     * Fan speed control responds to commands
+     * Manual mode entry/exit works (tested with raw IPMI commands)
+     * Fan speed control responds to commands (verified with RPM changes)
      * System returns to automatic control properly
+     * IPMI sensor readings working correctly:
+       - CPU Temp: 46°C
+       - System Temp: 47°C
+       - Peripheral Temp: 43°C
+       - Multiple M.2 SSD temps detected
+     * Fan control verified:
+       - Successfully entered manual mode
+       - Set fans to 50% speed
+       - Observed RPM changes in all fans
+       - Successfully restored BMC control
+     * Installation considerations:
+       - Package needs system-wide installation for sudo operation
+       - IPMI commands require root privileges
 
 ## Future Enhancements
 - Web interface for monitoring
@@ -151,3 +235,7 @@ superfan/
 - Multiple server management
 - Custom sensor plugin support
 - Temperature prediction modeling
+- Enhanced sensor compatibility
+  * Machine learning for sensor name recognition
+  * Vendor-specific sensor mapping profiles
+  * Dynamic sensor group detection
