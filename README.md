@@ -51,12 +51,25 @@ python -m pytest
 python -m pytest tests/test_curve.py
 ```
 
-The test suite includes comprehensive tests for:
-- Fan curve implementations (linear, step, and hysteresis)
+The test suite includes tests for:
+- Fan curve implementations (linear, step, and hysteresis) - 85% coverage
 - Temperature-to-speed mapping
 - Safety limits and validation
 - IPMI communication
 - Control loop logic
+
+Current test coverage:
+- Fan curve implementations: 85% coverage
+- CLI interface: 0% coverage (needs improvement)
+- Control manager: 15% coverage (needs improvement)
+- IPMI commander: 27% coverage (needs improvement)
+- IPMI sensors: 28% coverage (needs improvement)
+
+Verified functionality through manual testing:
+- IPMI sensor readings working correctly
+- Manual fan speed control operational
+- Fan speed changes confirmed via sensor readings
+- Proper entry/exit of manual control mode
 
 ## Usage
 

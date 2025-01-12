@@ -6,9 +6,10 @@ Superfan is a Python-based utility for controlling Supermicro server fan speeds 
 ## Technical Requirements
 
 ### IPMI Communication
-- Utilize `ipmitool` for BMC communication
+- Utilize `ipmitool` for BMC communication (requires root privileges)
 - Support different Supermicro generations (X9/X10/X11/X13)
 - Handle various fan control commands based on motherboard model
+- Ensure proper IPMI device access (ipmi_devintf and ipmi_si kernel modules)
 
 ### Temperature Monitoring
 - Poll temperature sensors via IPMI SDR (Sensor Data Record)
@@ -72,6 +73,7 @@ superfan/
 - Detect motherboard generation
 - Test basic fan control commands
 - Implement temperature sensor reading
+- Simplified local IPMI access (removed unnecessary authentication and interface settings)
 
 ### Phase 2: Fan Control Logic
 - Implement fan curve calculation
@@ -110,18 +112,31 @@ superfan/
 ## Testing Strategy
 1. Unit Tests
    - IPMI command formation
-   - Fan curve calculations
+   - Fan curve calculations (85% coverage achieved)
    - Configuration parsing
+   - Need additional coverage for:
+     * CLI interface (currently 0%)
+     * Control manager (currently 15%)
+     * IPMI commander (currently 27%)
+     * IPMI sensors (currently 28%)
 
 2. Integration Tests
    - End-to-end control flow
    - Temperature response
    - Profile switching
+   - Manual testing verified:
+     * Basic IPMI sensor readings work
+     * Manual fan speed control functions
+     * Fan speed changes confirmed via sensors
 
 3. Safety Tests
    - Failure mode handling
    - Temperature limit responses
    - Communication loss recovery
+   - Verified functionality:
+     * Manual mode entry/exit works
+     * Fan speed control responds to commands
+     * System returns to automatic control properly
 
 ## Future Enhancements
 - Web interface for monitoring
