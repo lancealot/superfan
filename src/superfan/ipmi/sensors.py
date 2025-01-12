@@ -26,7 +26,7 @@ class SensorReading:
         """Get age of reading in seconds"""
         return time.time() - self.timestamp
 
-class SensorManager:
+class SensorReader:
     """Manages temperature sensor monitoring and data processing"""
 
     def __init__(self, commander: IPMICommander, 
