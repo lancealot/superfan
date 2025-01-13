@@ -113,13 +113,32 @@ The monitoring display (`--monitor`) shows:
 ipmitool sdr list
 ```
 
-2. Sensor Discovery
+2. Sensor Reading Issues
 ```bash
-# List available sensors
+# Check sensor status
 ipmitool sdr list
+
+# Understanding sensor states:
+# - "ok": Normal operation
+# - "cr": Critical state
+# - "ns" or "no reading": Sensor not providing data
+#
+# Note: "no reading" or "ns" states are normal for:
+# - Unpopulated fan slots
+# - Optional temperature sensors
+# - Uninstalled components
 ```
 
-3. Manual Fan Control Test
+3. Response ID Issues
+```bash
+# If you see "Received a response with unexpected ID" messages:
+# This is normal behavior and is handled automatically by:
+# - Tracking response IDs per sensor
+# - Validating data consistency
+# - Filtering out invalid readings
+```
+
+4. Manual Fan Control Test
 ```bash
 # Test manual fan control
 ipmitool raw 0x30 0x45 0x01 0x01  # Enter manual mode

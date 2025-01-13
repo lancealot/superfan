@@ -162,7 +162,8 @@ class SensorReader:
             return None
             
         readings = self._readings[sensor_name]
-        valid_readings = [r for r in readings if r.age <= self.reading_timeout]
+        # Filter out both old readings and invalid readings (no reading/ns)
+        valid_readings = [r for r in readings if r.age <= self.reading_timeout and r.is_valid]
         
         if len(valid_readings) < self.min_readings:
             return None

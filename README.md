@@ -86,6 +86,14 @@ python -m superfan
 - Automatic fallback to full fan speed if temperature thresholds are exceeded
 - Watchdog timer to ensure control loop reliability
 - Automatic restoration of BMC control on program exit
+- Intelligent handling of sensor readings:
+  * Proper filtering of "no reading" and "ns" sensor states
+  * Validation of sensor response IDs for data consistency
+  * Safe handling of non-responsive fans and sensors
+- Robust error handling:
+  * Proper tracking of IPMI response IDs
+  * Validation of sensor data before use in control decisions
+  * Safe handling of communication errors and unexpected responses
 
 ## License
 

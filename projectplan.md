@@ -120,18 +120,23 @@ superfan/
      * Basic fan control commands (0x30 0x45) confirmed working
      * Fan speed command (0x30 0x70) verified working:
        - Fans respond proportionally to speed changes
-       - Each fan has specific RPM ranges:
-         * FAN1: 1400-1820 RPM
-         * FAN2-4: 1120-1400 RPM
-         * FAN5: 1680-1820 RPM
-         * FANA: 3500-3640 RPM
+       - Updated RPM ranges (verified through testing):
+         * FAN1: 1400-1820 RPM (confirmed max)
+         * FAN2-4: 1120-1400 RPM (confirmed max)
+         * FAN5: 1680-1960 RPM (exceeds previous max)
+         * FANA: 3500-3780 RPM (exceeds previous max)
          * FANB: Non-responsive (expected)
+       - Fan duty cycle verification:
+         * Successfully read current duty cycle using 0x30 0x70 0x66 0x00 0x[0|1]
+         * Confirmed proper response to speed changes
+         * Both CPU and peripheral zones respond correctly
      * X9-style commands not supported (0x30 0x91)
      * Command validation implemented:
        - Blacklisted dangerous commands (0x06 0x01, 0x06 0x02)
        - Added minimum speed enforcement
        - Added mode verification
        - Added command format validation
+       - Added duty cycle verification commands
      * CRITICAL: Command 0x06 0x01 (get supported commands) causes:
        - Fans to drop to minimum speed
        - Sensors to return 'na' values
@@ -144,14 +149,26 @@ superfan/
    - Safety Concerns:
      * Some fans stop completely at 10% speed instead of maintaining minimum speed
      * No enforcement of minimum fan speed in manual mode
-     * M2_SSD1 temperature reached critical state (71°C) during testing
+     * M2_SSD1 temperature remains in critical state (71-72°C) despite maximum fan speeds
+       - Suggests potential thermal design issue rather than fan control problem
+       - Requires investigation of M.2 SSD cooling solution
      * FANB consistently shows no reading (expected behavior)
-     * Fan speed changes not properly verified
+     * Fan speed changes now properly verified using duty cycle reading commands
 
    - IPMI Communication Issues:
-     * Unexpected IPMI response IDs received during sensor readings
-     * Need to implement better error handling for IPMI responses
-     * Command failures not properly handled
+     * Fixed handling of "no reading" and "ns" sensor states:
+       - Properly filtering out invalid readings in sensor statistics
+       - Improved value parsing to handle "no reading" cases
+       - Added validation to prevent using invalid sensor data
+     * Fixed response_id tracking:
+       - Now properly associating response IDs with specific sensor readings
+       - Improved error handling for unexpected response IDs
+       - Added validation to prevent using readings with mismatched IDs
+     * Monitor mode improvements:
+       - Fixed safety check failures by properly handling response_id
+       - Resolved fan speed reporting inconsistency
+       - Improved emergency state handling
+       - Better handling of sensor reading failures
 
    - Required Code Changes:
      * commander.py:
@@ -180,6 +197,9 @@ superfan/
        - Fan failure detection and failover
        - Temperature trend analysis for predictive action
        - Board-specific safety limits and thresholds
+       - Improved emergency state recovery mechanism
+       - Fan speed reporting validation between monitor and raw commands
+       - Safety check response validation
 
 2. Unit Tests
    - IPMI command formation

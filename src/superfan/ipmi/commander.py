@@ -326,17 +326,18 @@ class IPMICommander:
         """
         output = self._execute_ipmi_command("sdr list")
         readings = []
-        response_id = None
+        current_reading = None
         
         for line in output.splitlines():
-            # Check for response ID message
-            if "Received a response with unexpected ID" in line:
+            # Check for response ID message that applies to previous reading
+            if "Received a response with unexpected ID" in line and current_reading:
                 try:
                     response_id = int(line.split()[-1])
-                    logger.warning(f"Unexpected IPMI response ID: {response_id}")
-                    continue
+                    current_reading["response_id"] = response_id
+                    logger.warning(f"Unexpected IPMI response ID {response_id} for sensor {current_reading['name']}")
                 except (ValueError, IndexError):
-                    continue
+                    pass
+                continue
             
             parts = line.split('|')
             if len(parts) >= 3:  # We need at least name, value, and state
@@ -345,27 +346,28 @@ class IPMICommander:
                     value_part = parts[1].strip()
                     state = parts[2].strip().lower()
                     
-                    # Parse value if present
+                    # Parse value if present and state is not 'ns'
                     value = None
-                    if "degrees C" in value_part:
-                        try:
-                            value = float(value_part.split()[0])
-                        except (ValueError, IndexError):
-                            pass
-                    elif "RPM" in value_part:
-                        try:
-                            value = float(value_part.split()[0])
-                        except (ValueError, IndexError):
-                            pass
+                    if state != 'ns':  # Only parse value if not "no reading"
+                        if "degrees C" in value_part:
+                            try:
+                                value = float(value_part.split()[0])
+                            except (ValueError, IndexError):
+                                state = 'ns'  # Mark as no reading if value parse fails
+                        elif "RPM" in value_part:
+                            try:
+                                value = float(value_part.split()[0])
+                            except (ValueError, IndexError):
+                                state = 'ns'  # Mark as no reading if value parse fails
                     
-                    reading = {
+                    current_reading = {
                         "name": name,
                         "value": value,
                         "state": state,  # 'ok', 'cr', or 'ns'
-                        "response_id": response_id
+                        "response_id": None
                     }
                     
-                    readings.append(reading)
+                    readings.append(current_reading)
                     
                 except (ValueError, IndexError) as e:
                     logger.warning(f"Failed to parse sensor reading: {line} - {str(e)}")
