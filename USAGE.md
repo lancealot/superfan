@@ -9,13 +9,76 @@ sudo apt-get install ipmitool
 # Ensure IPMI device access
 sudo modprobe ipmi_devintf
 sudo modprobe ipmi_si
+
+# Add modules to load at boot
+echo "ipmi_devintf" | sudo tee -a /etc/modules
+echo "ipmi_si" | sudo tee -a /etc/modules
 ```
 
 Note: Root privileges (sudo) are required for IPMI operations.
 
 2. Install the package:
 ```bash
-pip install .
+sudo pip install .
+```
+
+3. (Optional) Install as systemd service:
+```bash
+# Copy service file
+sudo cp superfan.service /etc/systemd/system/
+
+# Reload systemd
+sudo systemctl daemon-reload
+
+# Enable and start the service
+sudo systemctl enable superfan
+sudo systemctl start superfan
+```
+
+## Deployment Options
+
+### 1. Manual Execution
+- Run directly with `superfan` command
+- Requires manual restart if system reboots
+- Good for testing and development
+- Allows real-time monitoring with `--monitor` flag
+
+### 2. Systemd Service (Recommended for Production)
+- Automatic startup on boot
+- Automatic restart on failures
+- Proper service management and logging
+- Enhanced security through service isolation
+
+#### Advantages of Systemd Deployment:
+- Reliable startup/shutdown handling
+- Automatic restart on crashes
+- Proper dependency management
+- Integrated logging (journalctl)
+- Security hardening through service isolation
+- Resource control capabilities
+
+#### Potential Drawbacks:
+- Less interactive (no real-time monitor mode)
+- Requires service restart to apply config changes
+- May need additional logging configuration
+- Root privileges required for service management
+
+#### Systemd Service Management:
+```bash
+# Check service status
+sudo systemctl status superfan
+
+# View logs
+sudo journalctl -u superfan
+
+# Restart service (after config changes)
+sudo systemctl restart superfan
+
+# Stop service
+sudo systemctl stop superfan
+
+# Disable automatic start
+sudo systemctl disable superfan
 ```
 
 ## Configuration

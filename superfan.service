@@ -1,0 +1,26 @@
+[Unit]
+Description=Superfan - Intelligent Supermicro server fan control
+After=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/superfan
+Restart=always
+RestartSec=5
+# Give the service time to read sensors and adjust fans
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+# Security settings
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+
+[Install]
+WantedBy=multi-user.target

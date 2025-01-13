@@ -102,6 +102,20 @@ superfan/
   * Auto-detection of equivalent sensors
   * Fallback sensor selection logic
 
+### Fan Control Capabilities (Verified)
+- Zone-based control only (individual fan control not supported)
+  * Zone 0 (Chassis): Controls FAN1-5 as a group
+    - Group 1 (FAN1, FAN5): Higher RPM range
+    - Group 2 (FAN2-4): Lower RPM range
+  * Zone 1 (CPU): Controls FANA independently
+    - FANA: CPU cooler with independent RPM range
+    - FANB: Non-responsive (expected for unpopulated slot)
+- IPMI Command Structure:
+  * Manual Mode: 0x30 0x45 0x01 [0x01=manual/0x00=auto]
+  * Fan Control: 0x30 0x70 0x66 0x01 [zone] [speed]
+    - zone: 0x00 (chassis) or 0x01 (CPU)
+    - speed: 0x00-0x64 (0-100%)
+
 ## Safety Considerations
 1. Temperature Limits
    - Hard-coded maximum temperature thresholds
@@ -258,6 +272,51 @@ superfan/
        - Package needs system-wide installation for sudo operation
        - IPMI commands require root privileges
 
+## Systemd Service Integration
+
+### Required Code Changes for Systemd
+1. Logging Improvements
+   - Switch to systemd journal logging
+   - Add structured logging for better journalctl integration
+   - Include more detailed error states and transitions
+   - Add service status reporting
+
+2. Signal Handling
+   - Implement proper SIGTERM handling for clean shutdown
+   - Add SIGHUP handler for config reload
+   - Improve graceful shutdown process
+
+3. Service Status Reporting
+   - Add systemd status notification (sd_notify)
+   - Report service state transitions
+   - Include health check information
+   - Add watchdog integration
+
+4. Error Recovery
+   - Implement automatic recovery procedures
+   - Add failure state detection
+   - Improve emergency mode handling
+   - Add startup failure detection
+
+### Deployment Considerations
+1. Security
+   - Run as root (required for IPMI)
+   - Implement service hardening
+   - Add resource limits
+   - Restrict capabilities
+
+2. Configuration
+   - Use standard paths (/etc/superfan)
+   - Support config reload
+   - Validate all settings
+   - Handle missing/invalid configs
+
+3. Monitoring
+   - Integration with system monitoring
+   - Export metrics for collection
+   - Status reporting
+   - Health checks
+
 ## Future Enhancements
 - Web interface for monitoring
 - Remote control capabilities
@@ -268,3 +327,8 @@ superfan/
   * Machine learning for sensor name recognition
   * Vendor-specific sensor mapping profiles
   * Dynamic sensor group detection
+- Systemd Integration
+  * Native systemd journal logging
+  * Service status notifications
+  * Watchdog integration
+  * Health monitoring
