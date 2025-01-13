@@ -6,6 +6,9 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
 
 - Automated fan speed control based on temperature sensors
 - Support for multiple Supermicro generations (X9/X10/X11/X13)
+- Zone-based fan control:
+  * Chassis fan zone (FAN1-5 controlled as a group)
+  * CPU fan zone (FANA controlled independently)
 - Custom fan curves and temperature thresholds
 - Safety-first approach with thermal protection
 - Real-time monitoring and manual control options

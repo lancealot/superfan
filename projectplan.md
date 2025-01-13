@@ -21,14 +21,19 @@ Superfan is a Python-based utility for controlling Supermicro server fan speeds 
 
 ### Fan Control
 1. Manual Mode Management
-   - Set fan control to manual mode
+   - Set fan control to manual mode (command: 0x30 0x45 0x01 0x01)
    - Implement safeguards to prevent thermal damage
-   - Ability to restore automatic control
+   - Ability to restore automatic control (command: 0x30 0x45 0x01 0x00)
 
 2. Speed Control
    - Support percentage-based control (0-100%)
-   - Individual fan zone control where supported
+   - Zone-based control implementation:
+     * Zone 0: Chassis fans (FAN1-5)
+       - Group 1: FAN1, FAN5 (higher RPM range)
+       - Group 2: FAN2-4 (lower RPM range)
+     * Zone 1: CPU fan (FANA)
    - Duty cycle calculation and conversion
+   - Command structure: 0x30 0x70 0x66 0x01 [zone] [speed]
 
 ### User Interface
 1. Configuration
@@ -120,12 +125,16 @@ superfan/
      * Basic fan control commands (0x30 0x45) confirmed working
      * Fan speed command (0x30 0x70) verified working:
        - Fans respond proportionally to speed changes
+       - Zone-based control confirmed:
+         * Zone 0 (Chassis): Controls all chassis fans (FAN1-5)
+         * Zone 1 (CPU): Controls CPU fan (FANA)
        - Updated RPM ranges (verified through testing):
          * FAN1: 1400-1820 RPM (confirmed max)
          * FAN2-4: 1120-1400 RPM (confirmed max)
          * FAN5: 1680-1960 RPM (exceeds previous max)
          * FANA: 3500-3780 RPM (exceeds previous max)
          * FANB: Non-responsive (expected)
+       - Important Note: Individual fan control not supported, only zone-based control
        - Fan duty cycle verification:
          * Successfully read current duty cycle using 0x30 0x70 0x66 0x00 0x[0|1]
          * Confirmed proper response to speed changes

@@ -105,6 +105,27 @@ The monitoring display (`--monitor`) shows:
 - Fan speeds for each zone
 - Color-coded warnings for high temperatures
 
+## Fan Control Zones
+
+The system implements zone-based fan control:
+
+1. Zone 0 (Chassis Fans):
+   - Controls all chassis fans (FAN1-5) as a group
+   - Fan groups have different RPM ranges:
+     * Group 1: FAN1, FAN5 (higher RPM range)
+     * Group 2: FAN2-4 (lower RPM range)
+   - Individual fan control is not supported
+
+2. Zone 1 (CPU Fan):
+   - Controls CPU fan (FANA) independently
+   - Typically maintains higher RPM range for CPU cooling
+   - FANB readings can be ignored (normal for unpopulated slot)
+
+Note: When changing fan speeds, allow 5 seconds between changes for:
+- Fan speeds to stabilize
+- RPM readings to update
+- System to properly register changes
+
 ## Troubleshooting
 
 1. IPMI Connection Issues
@@ -142,8 +163,24 @@ ipmitool sdr list
 ```bash
 # Test manual fan control
 ipmitool raw 0x30 0x45 0x01 0x01  # Enter manual mode
-ipmitool raw 0x30 0x70 0x66 0x01 0x00 0x64  # Set fans to 100%
+sleep 5  # Wait for mode change to take effect
+
+# Control chassis fans (Zone 0)
+ipmitool raw 0x30 0x70 0x66 0x01 0x00 0x64  # Set chassis fans to 100%
+sleep 5  # Wait for speed change to take effect
+
+# Control CPU fan (Zone 1)
+ipmitool raw 0x30 0x70 0x66 0x01 0x01 0x64  # Set CPU fan to 100%
+sleep 5  # Wait for speed change to take effect
+
 ipmitool raw 0x30 0x45 0x01 0x00  # Return to automatic mode
+```
+
+Note: The command structure for fan control is:
+```bash
+ipmitool raw 0x30 0x70 0x66 0x01 [zone] [speed]
+# zone: 0 for chassis fans, 1 for CPU fan
+# speed: 0x00-0x64 (0-100 in hex)
 ```
 
 ## Advanced Configuration
