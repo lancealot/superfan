@@ -1,6 +1,21 @@
 # Superfan Project Plan
 
 ## Project Overview
+### Installation & Uninstallation Improvements (Latest Update)
+1. Installation Process
+   - Verified systemd service integration
+   - Package installation with pip
+   - Service file deployment and activation
+   - Automatic startup configuration
+
+2. Uninstallation Process Improvements
+   - Enhanced uninstall script with better error handling
+   - Added systemd service cleanup
+   - Verification steps for each operation
+   - Proper cleanup of all created directories and files
+   - Status reporting for each step
+   - Safe handling of configuration files
+
 Superfan is a Python-based utility for controlling Supermicro server fan speeds based on component temperatures and user-defined preferences. The project aims to provide fine-grained control over cooling while maintaining system stability.
 
 ## Technical Requirements
