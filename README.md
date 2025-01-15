@@ -5,6 +5,7 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
 ## Features
 
 - Automated fan speed control based on temperature sensors
+- NVMe drive temperature monitoring via nvme-cli
 - Support for multiple Supermicro generations (X9/X10/X11/X13)
 - Zone-based fan control:
   * Chassis fan zone (FAN1-5 controlled as a group)
@@ -17,6 +18,7 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
 
 - Python 3.8+
 - ipmitool
+- nvme-cli
 - Supermicro server with IPMI support
 
 ## Installation

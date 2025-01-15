@@ -6,7 +6,7 @@ including fan control and temperature monitoring.
 """
 
 from .commander import IPMICommander, IPMIError, IPMIConnectionError, IPMICommandError, MotherboardGeneration
-from .sensors import SensorReader
+from .sensors import CombinedTemperatureReader
 
 __all__ = [
     'IPMICommander',
@@ -14,5 +14,5 @@ __all__ = [
     'IPMIConnectionError',
     'IPMICommandError',
     'MotherboardGeneration',
-    'SensorReader'
+    'CombinedTemperatureReader'
 ]

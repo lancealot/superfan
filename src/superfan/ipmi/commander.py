@@ -349,16 +349,13 @@ class IPMICommander:
                     # Parse value if present and state is not 'ns'
                     value = None
                     if state != 'ns':  # Only parse value if not "no reading"
-                        if "degrees C" in value_part:
-                            try:
-                                value = float(value_part.split()[0])
-                            except (ValueError, IndexError):
-                                state = 'ns'  # Mark as no reading if value parse fails
-                        elif "RPM" in value_part:
-                            try:
-                                value = float(value_part.split()[0])
-                            except (ValueError, IndexError):
-                                state = 'ns'  # Mark as no reading if value parse fails
+                        # Clean up value string and handle Kelvin format
+                        value_str = value_part.split('(')[0]  # Take part before Kelvin
+                        value_str = value_str.replace('°', '').replace('degrees', '').replace('C', '').replace('RPM', '').strip()
+                        try:
+                            value = float(value_str)
+                        except (ValueError, IndexError):
+                            state = 'ns'  # Mark as no reading if value parse fails
                     
                     current_reading = {
                         "name": name,

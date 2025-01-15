@@ -13,7 +13,7 @@ from typing import Dict, Optional, List
 import yaml
 
 from ..ipmi import IPMICommander, IPMIError
-from ..ipmi.sensors import SensorReader
+from ..ipmi.sensors import CombinedTemperatureReader
 from .curve import FanCurve, LinearCurve, HysteresisCurve
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ class ControlManager:
                     pattern = f"*{sensor.replace('1', '*').replace('2', '*')}*"
                     sensor_patterns.append(pattern)
         
-        self.sensor_manager = SensorReader(
+        self.sensor_manager = CombinedTemperatureReader(
             commander=self.commander,
             sensor_patterns=sensor_patterns,
             reading_timeout=self.config["safety"]["watchdog_timeout"],
@@ -149,10 +149,13 @@ class ControlManager:
             for fan in fan_readings:
                 name = fan["name"]
                 if fan["state"] == "ns":
-                    logger.warning(f"{name} is not responding")
+                    logger.debug(f"{name} is not responding")  # Downgrade to debug level
                     continue
                     
                 rpm = fan["value"]
+                if rpm is None:  # Skip fans with no reading
+                    continue
+                    
                 if rpm < 100:  # RPM too low - likely stopped
                     logger.error(f"{name} appears stopped: {rpm} RPM")
                     return False
@@ -189,13 +192,26 @@ class ControlManager:
                     logger.error(f"Critical state detected for {reading['name']}")
                     return False
             
-            # Check temperatures
+            # Check temperatures from all sources
+            all_temps = []
+            
+            # IPMI temperature readings
             temp_readings = [r for r in readings if "temp" in r["name"].lower()]
-            if not temp_readings:
-                logger.error("No temperature readings available")
+            if temp_readings:
+                ipmi_temps = [r["value"] for r in temp_readings if r["value"] is not None]
+                all_temps.extend(ipmi_temps)
+            
+            # NVMe temperature readings
+            nvme_stats = self.sensor_manager.nvme_reader.get_all_stats()
+            if nvme_stats:
+                nvme_temps = [stats["current"] for stats in nvme_stats.values()]
+                all_temps.extend(nvme_temps)
+            
+            if not all_temps:
+                logger.error("No temperature readings available from any source")
                 return False
             
-            max_temp = max(r["value"] for r in temp_readings if r["value"] is not None)
+            max_temp = max(all_temps)
             if max_temp >= self.config["temperature"]["critical_max"]:
                 logger.error(f"Critical temperature reached: {max_temp}°C")
                 return False

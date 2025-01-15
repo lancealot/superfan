@@ -27,12 +27,17 @@ Superfan is a Python-based utility for controlling Supermicro server fan speeds 
 - Ensure proper IPMI device access (ipmi_devintf and ipmi_si kernel modules)
 
 ### Temperature Monitoring
-- Poll temperature sensors via IPMI SDR (Sensor Data Record)
-- Monitor multiple temperature zones:
-  - CPU Temperature
-  - System Temperature
-  - Peripheral Temperature
-  - Custom sensor support
+- Multiple temperature monitoring sources:
+  1. IPMI SDR (Sensor Data Record):
+     - CPU Temperature
+     - System Temperature
+     - Peripheral Temperature
+     - Custom sensor support
+  2. NVMe Drive Temperatures:
+     - Direct monitoring via nvme-cli
+     - Automatic drive discovery
+     - Per-drive temperature tracking
+     - Integration with fan control decisions
 
 ### Fan Control
 1. Manual Mode Management
@@ -112,10 +117,16 @@ superfan/
 - Temperature trending
 - Emergency thermal protection
 - Logging and diagnostics
-- Flexible sensor name matching
-  * Pattern-based sensor matching for different motherboards
-  * Auto-detection of equivalent sensors
-  * Fallback sensor selection logic
+- Enhanced temperature monitoring:
+  * IPMI sensor support:
+    - Pattern-based sensor matching for different motherboards
+    - Auto-detection of equivalent sensors
+    - Fallback sensor selection logic
+  * NVMe drive monitoring:
+    - Automatic drive discovery
+    - Per-drive temperature tracking
+    - Integration with fan curves
+    - Health status monitoring
 
 ### Fan Control Capabilities (Verified)
 - Zone-based control only (individual fan control not supported)
@@ -148,7 +159,19 @@ superfan/
    - Configuration validation
 
 ## Testing Strategy
-1. Critical Issues Found (Latest Testing)
+1. Latest Changes
+   - Added NVMe temperature monitoring:
+     * Successfully integrated nvme-cli for drive temperature readings
+     * Implemented automatic drive discovery
+     * Added NVMe temperature tracking to sensor system
+     * Verified temperature readings from all detected drives
+     * Integrated NVMe temperatures into fan control decisions
+     * Added NVMe sensor naming convention (NVMe_nvme[X]n1)
+     * Removed dependency on IPMI for NVMe temperatures
+     * Added proper error handling for NVMe operations
+     * Verified sudo access for nvme-cli commands
+
+2. Critical Issues Found (Latest Testing)
    - H12 Board Support:
      * Board detection working correctly via DMI info
      * Basic fan control commands (0x30 0x45) confirmed working
@@ -198,10 +221,13 @@ superfan/
        - Properly filtering out invalid readings in sensor statistics
        - Improved value parsing to handle "no reading" cases
        - Added validation to prevent using invalid sensor data
+       - Added support for Kelvin temperature format (e.g., "45(318K)")
+       - Fixed temperature parsing for both standard and Kelvin formats
      * Fixed response_id tracking:
        - Now properly associating response IDs with specific sensor readings
        - Improved error handling for unexpected response IDs
        - Added validation to prevent using readings with mismatched IDs
+       - Downgraded non-responsive fan warnings to debug level
      * Monitor mode improvements:
        - Fixed safety check failures by properly handling response_id
        - Resolved fan speed reporting inconsistency

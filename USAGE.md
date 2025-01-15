@@ -4,7 +4,8 @@
 
 1. Install system dependencies:
 ```bash
-sudo apt-get install ipmitool
+# Install IPMI and NVMe tools
+sudo apt-get install ipmitool nvme-cli
 
 # Ensure IPMI device access
 sudo modprobe ipmi_devintf
@@ -85,6 +86,14 @@ sudo systemctl disable superfan
 
 The default configuration file is installed at `/etc/superfan/config.yaml`. You can specify a different configuration file using the `--config` option.
 
+### Temperature Sources
+
+The system monitors temperatures from two sources:
+1. IPMI Sensors - System and component temperatures via IPMI
+2. NVMe Drives - Direct temperature monitoring of NVMe drives using nvme-cli
+
+NVMe temperatures are automatically detected and monitored, with sensors named in the format `NVMe_nvme[X]n1` where X is the drive number.
+
 ### Example Configuration
 
 ```yaml
@@ -164,9 +173,10 @@ Superfan includes several safety features:
 
 The monitoring display (`--monitor`) shows:
 - Current system status
-- Temperature readings for all sensors
+- Temperature readings for all sensors (IPMI and NVMe)
 - Fan speeds for each zone
 - Color-coded warnings for high temperatures
+- NVMe drive temperatures and health status
 
 ## Fan Control Zones
 
@@ -211,6 +221,11 @@ ipmitool sdr list
 # - Unpopulated fan slots
 # - Optional temperature sensors
 # - Uninstalled components
+
+# Temperature formats supported:
+# - Standard Celsius: "45°C" or "45 degrees C"
+# - Kelvin format: "45(318K)" - common in some IPMI implementations
+# The system automatically handles both formats
 ```
 
 3. Response ID Issues

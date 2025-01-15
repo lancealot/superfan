@@ -12,36 +12,38 @@ ipmi:
 temperature:
   critical_max: 85  # Emergency threshold - will set fans to 100%
   warning_max: 75   # Warning threshold - will increase fan speed
-  target: 60        # Desired operating temperature (lowered based on testing)
-  hysteresis: 5     # Temperature change required before adjusting fans (increased for stability)
+  target: 60        # Desired operating temperature
+  hysteresis: 5     # Temperature change required before adjusting fans
 
 # Fan Control Settings
 fans:
   polling_interval: 5  # Seconds between temperature checks
-  min_speed: 30       # Minimum fan speed percentage (adjusted based on H12 testing)
+  min_speed: 30       # Minimum fan speed percentage
   max_speed: 100      # Maximum fan speed percentage
-  ramp_step: 2        # Maximum fan speed change per interval (reduced for stability)
-  
-  # H12 Board Specific Settings
-  h12:
-    fan_ranges:       # Documented RPM ranges from testing
-      FAN1: [1400, 1820]
-      FAN2: [1120, 1400]
-      FAN3: [1120, 1400]
-      FAN4: [1120, 1400]
-      FAN5: [1680, 1960]
-      FANA: [3500, 3780]
-    verify_speeds: true  # Enable speed verification after changes
+  ramp_step: 2        # Maximum fan speed change per interval
   
   # Fan Zones Configuration
   zones:
-    cpu:
+    nvme:
       enabled: true
-      sensors: ["CPU Temp", "CPU_VRM Temp"]  # Updated based on discovered sensors
+      sensors: ["NVMe_*"]  # Pattern to match NVMe temperature sensors
       curve:
         - [0, 30]    # [temp_delta, fan_speed]
-        - [5, 40]    # Adjusted for smoother ramping
-        - [10, 50]   # And higher minimum speeds
+        - [5, 40]
+        - [10, 50]
+        - [15, 60]
+        - [20, 70]
+        - [25, 80]
+        - [30, 90]
+        - [35, 100]
+
+    cpu:
+      enabled: true
+      sensors: ["CPU Temp", "CPU_VRM Temp"]
+      curve:
+        - [0, 30]    # [temp_delta, fan_speed]
+        - [5, 40]
+        - [10, 50]
         - [15, 60]
         - [20, 70]
         - [25, 80]
@@ -62,10 +64,11 @@ fans:
 # Safety Settings
 safety:
   watchdog_timeout: 30    # Seconds before watchdog triggers
-  min_temp_readings: 3    # Increased required readings for reliability
+  min_temp_readings: 3    # Minimum required readings for reliability
   restore_on_exit: true   # Restore BMC control on program exit
   emergency_timeout: 60   # Seconds before exiting emergency state if temps normal
   verify_commands: true   # Enable command response validation
+  min_working_fans: 1     # Minimum number of working fans required
   
 # Logging Configuration
 logging:
