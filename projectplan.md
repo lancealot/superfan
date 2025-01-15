@@ -7,6 +7,28 @@
    - Package installation with pip
    - Service file deployment and activation
    - Automatic startup configuration
+   - Development vs Production Installation:
+     * Development mode (-e flag) creates .pth file in ~/.local/lib/python*/site-packages/
+     * Production installation requires sudo for proper system-wide installation
+     * Edge case: Development installation may require manual cleanup of .pth file
+
+2. File Locations:
+   - Development Installation:
+     * ~/.local/lib/python*/site-packages/ (pip install without sudo)
+     * Not recommended for production use
+   - Production Installation:
+     * /usr/lib/python*/site-packages/ (system-wide installation)
+     * /etc/superfan/ (production config)
+     * /etc/systemd/system/superfan.service (systemd service)
+     * /var/log/superfan.log (production logging)
+   
+3. System-Specific Requirements:
+   - Red Hat based systems (RHEL/CentOS/Fedora):
+     * Use dnf/yum for package installation
+     * Example: sudo dnf install ipmitool nvme-cli
+   - Debian based systems (Ubuntu/Debian):
+     * Use apt-get for package installation
+     * Example: sudo apt-get install ipmitool nvme-cli
 
 2. Uninstallation Process Improvements
    - Enhanced uninstall script with better error handling
@@ -15,6 +37,10 @@
    - Proper cleanup of all created directories and files
    - Status reporting for each step
    - Safe handling of configuration files
+   - Special handling for development installations:
+     * Manual cleanup of .pth files if needed
+     * Verification of pip uninstall success
+     * Cleanup of any remaining package files
 
 Superfan is a Python-based utility for controlling Supermicro server fan speeds based on component temperatures and user-defined preferences. The project aims to provide fine-grained control over cooling while maintaining system stability.
 
@@ -357,6 +383,45 @@ superfan/
    - Export metrics for collection
    - Status reporting
    - Health checks
+
+## Dependency Analysis (Latest Update)
+1. Core Dependencies Review
+   - pyyaml (>=5.1):
+     * Essential for YAML configuration parsing
+     * Used in both production and development
+     * No viable alternatives for simplification
+     * Cannot be pruned due to core functionality
+
+2. Development Dependencies Review
+   - pytest (>=7.0) & pytest-cov (>=3.0):
+     * Essential for test suite
+     * Current coverage needs improvement:
+       - CLI interface: 0% coverage
+       - Control manager: 15% coverage
+       - IPMI commander: 27% coverage
+       - IPMI sensors: 28% coverage
+     * Required for ongoing development
+   - black (>=22.0) & isort (>=5.0):
+     * Used for code formatting and import organization
+     * Essential for maintaining code quality
+     * Actively used in development workflow
+   - flake8 (>=4.0):
+     * Complements black/isort for linting
+     * Catches potential issues early
+   - mypy (>=0.9):
+     * Critical for static type checking
+     * Important for safety-critical fan control logic
+     * Helps prevent runtime errors
+
+3. Installation Process Analysis
+   - Optimized package structure:
+     * Clear separation of core vs dev dependencies
+     * Minimal core requirements (single package)
+     * Development tools only installed when needed
+   - No opportunities for further pruning:
+     * All packages serve distinct purposes
+     * No redundant or obsolete dependencies
+     * Each tool actively used in development
 
 ## Future Enhancements
 - Web interface for monitoring
