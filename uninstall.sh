@@ -61,4 +61,11 @@ find . -name "*.pyc" -delete
 find . -type d -name "__pycache__" -exec rm -r {} + 2>/dev/null || true
 check_status "Cache files cleaned"
 
+# Remove kernel module configuration
+if [ -f "/etc/modules-load.d/superfan.conf" ]; then
+    echo "Removing kernel module configuration..."
+    sudo rm -f /etc/modules-load.d/superfan.conf
+    check_status "Kernel module configuration removed"
+fi
+
 echo "✓ Superfan has been successfully uninstalled"
