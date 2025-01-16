@@ -154,7 +154,21 @@ superfan/
     - Integration with fan curves
     - Health status monitoring
 
-### Fan Control Capabilities (Verified)
+### Fan Speed Testing Results (Latest)
+- CPU Fan Speed Testing:
+  * Conducted controlled testing of CPU fan speeds and temperature response
+  * Found stable operation at 10% speed (1260 RPM)
+  * Temperature rise from 40°C to 54°C observed over testing period
+  * Verified safe operation up to target temperature of 60°C
+  * Configuration updated based on findings:
+    - Reduced minimum fan speed from 30% to 10%
+    - Adjusted CPU fan curve for more gradual scaling
+    - Decreased hysteresis from 5°C to 3°C for better responsiveness
+    - Maintained critical safety thresholds
+  * Response ID inconsistency observed but does not affect operation
+  * Automatic mode restoration confirmed working
+
+## Fan Control Capabilities (Verified)
 - Zone-based control only (individual fan control not supported)
   * Zone 0 (Chassis): Controls FAN1-5 as a group
     - Group 1 (FAN1, FAN5): Higher RPM range
