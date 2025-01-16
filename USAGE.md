@@ -4,8 +4,8 @@
 
 1. Install system dependencies:
 ```bash
-# Install IPMI and NVMe tools
-sudo apt-get install ipmitool nvme-cli
+# Install IPMI, NVMe tools, and Python pip
+sudo apt-get install ipmitool nvme-cli python3-pip
 
 # Ensure IPMI device access
 sudo modprobe ipmi_devintf

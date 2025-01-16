@@ -21,6 +21,7 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
 ## Requirements
 
 - Python 3.8+
+- python3-pip
 - ipmitool
 - nvme-cli
 - Supermicro server with IPMI support

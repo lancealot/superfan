@@ -40,9 +40,9 @@ fi
 echo "Installing system dependencies..."
 if [ "$PKG_MANAGER" = "apt-get" ]; then
     apt-get update
-    apt-get install -y ipmitool nvme-cli
+    apt-get install -y ipmitool nvme-cli python3-pip
 elif [ "$PKG_MANAGER" = "dnf" ] || [ "$PKG_MANAGER" = "yum" ]; then
-    $PKG_MANAGER install -y ipmitool nvme-cli
+    $PKG_MANAGER install -y ipmitool nvme-cli python3-pip
 fi
 check_status "System dependencies installed"
 

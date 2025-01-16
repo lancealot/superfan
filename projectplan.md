@@ -435,6 +435,11 @@ superfan/
 
 ## Dependency Analysis (Latest Update)
 1. Core Dependencies Review
+   - python3-pip:
+     * Required for Python package installation
+     * Added as system dependency in install.sh
+     * Essential for both production and development installations
+     * Required for installing other Python dependencies
    - pyyaml (>=5.1):
      * Essential for YAML configuration parsing
      * Used in both production and development
