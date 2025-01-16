@@ -242,7 +242,25 @@ superfan/
    - Configuration validation
 
 ## Testing Strategy
-1. Latest Changes
+1. Latest Monitor Mode Testing Results (2025-01-16)
+   - Critical Issues Found:
+     * Fan Control Problems:
+       - FAN1 and FAN3 stop completely at 30% speed (0.0 RPM)
+       - Emergency fan speed change failed during recovery
+       - System forced to fall back to BMC control
+       - Suggests minimum fan speed threshold may be too low
+     * Temperature Monitoring Issues:
+       - Initial "No valid temperature" warnings for chassis and CPU zones
+       - High temperatures on NVMe drives (up to 61°C)
+       - M2_SSD1 and M2_SSD2 showing concerning temperatures (59-61°C)
+     * Required Fixes:
+       - Increase minimum fan speed threshold from 30% to safer level
+       - Improve temperature sensor initialization and validation
+       - Add additional cooling considerations for NVMe and M2 drives
+       - Enhance emergency recovery procedures
+       - Implement gradual fan speed changes to prevent stalling
+
+1. Previous Changes
    - Modified polling intervals:
      * Normal operation: 30 second polling interval for efficient operation
      * Monitor mode: 5 second polling for responsive monitoring

@@ -112,9 +112,9 @@ temperature:
 
 fans:
   polling_interval: 5
-  min_speed: 20
+  min_speed: 35  # Minimum safe speed to prevent fan stalling
   max_speed: 100
-  ramp_step: 5
+  ramp_step: 5   # Gradual speed changes to prevent sudden transitions
   
   zones:
     cpu:
@@ -174,9 +174,30 @@ For optimal results:
 - Ensure ambient temperature is at typical operating levels
 - Allow the learning process to complete without interruption
 
-## Safety Features
+## Critical Safety Guidelines (Latest Update)
 
-Superfan includes several safety features:
+1. Minimum Fan Speed Requirements
+- NEVER set min_speed below 35% as fans may stall completely
+- Some fans (particularly FAN1 and FAN3) may stop at lower speeds
+- System will restore BMC control if fan speeds cannot be maintained
+- Allow 5 seconds between speed changes for stability
+
+2. Temperature Monitoring
+- Monitor NVMe and M.2 SSD temperatures closely
+- Some drives may require additional cooling consideration
+- M2_SSD temperatures above 60°C indicate potential cooling issues
+- Use monitor mode (5-second polling) for real-time temperature tracking
+
+3. Emergency Procedures
+- System automatically restores BMC control if:
+  * Fans stop completely
+  * Emergency fan speed changes fail
+  * Critical temperatures are detected
+- Manual intervention may be needed if cooling issues persist
+
+## Additional Safety Features
+
+Superfan includes several built-in safety features:
 
 1. Temperature Limits
 - If temperature exceeds `critical_max`, fans are set to 100%

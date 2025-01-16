@@ -35,6 +35,12 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
 - Prevents fan stall by maintaining safe minimum RPM
 - Improves system noise levels while ensuring reliability
 
+### Important Safety Notes (Latest Update)
+- Minimum fan speed should be set to 35% or higher to prevent fan stalling
+- Some NVMe and M.2 drives may require additional cooling consideration
+- Emergency recovery procedures will restore BMC control if fan speeds cannot be maintained
+- Monitor mode provides 5-second polling for real-time temperature tracking
+
 ## Installation
 
 ### Method 1: From Source
