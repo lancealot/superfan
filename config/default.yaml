@@ -12,24 +12,40 @@ ipmi:
 temperature:
   critical_max: 85  # Emergency threshold - will set fans to 100%
   warning_max: 75   # Warning threshold - will increase fan speed
-  target: 60        # Desired operating temperature - verified through testing
-  hysteresis: 3     # Reduced from 5 for more responsive control
+  target: 60        # Desired operating temperature
+  hysteresis: 3     # Temperature change required for speed adjustment
 
 # Fan Control Settings
 fans:
   polling_interval: 30      # Seconds between temperature checks during normal operation
   monitor_interval: 5       # Faster polling interval when monitoring (seconds)
-  min_speed: 10            # Reduced from 30 based on testing (1260 RPM stable)
+  min_speed: 30            # Starting point for learning (will be updated by learning mode)
   max_speed: 100           # Maximum fan speed percentage
   ramp_step: 2             # Maximum fan speed change per interval
   
-  # Fan Zones Configuration
+  # Hardware Fan Control Zones
   zones:
-    nvme:
+    chassis:  # Zone 0: Controls FAN1-5 as a group
       enabled: true
-      sensors: ["NVMe_*"]  # Pattern to match NVMe temperature sensors
       curve:
         - [0, 30]    # [temp_delta, fan_speed]
+        - [10, 45]
+        - [20, 60]
+        - [30, 75]
+        - [40, 90]
+        - [50, 100]
+      # All system temperatures that affect chassis cooling
+      sensors:
+        - System Temp
+        - Peripheral Temp
+        - P1_DIMM*
+        - NVMe_*
+        - M2_SSD*
+        
+    cpu:  # Zone 1: Controls FANA (CPU fan)
+      enabled: true
+      curve:
+        - [0, 30]
         - [5, 40]
         - [10, 50]
         - [15, 60]
@@ -37,30 +53,13 @@ fans:
         - [25, 80]
         - [30, 90]
         - [35, 100]
-
-    cpu:
-      enabled: true
-      sensors: ["CPU Temp", "CPU_VRM Temp"]
-      curve:
-        - [0, 10]     # Base speed 10% (1260 RPM) - verified stable
-        - [5, 15]     # Small increase at 5°C over target
-        - [10, 20]    # Gradual increase as temp rises
-        - [15, 30]
-        - [20, 50]    # More aggressive scaling at higher deltas
-        - [25, 70]
-        - [30, 90]
-        - [35, 100]   # Full speed at 35°C over target
-    
-    system:
-      enabled: true
-      sensors: ["System Temp", "Peripheral Temp"]
-      curve:
-        - [0, 30]
-        - [10, 45]
-        - [20, 60]
-        - [30, 75]
-        - [40, 90]
-        - [50, 100]
+      # CPU-specific temperatures
+      sensors:
+        - CPU Temp
+        - CPU_VRM Temp
+        - SOC_VRM Temp
+        - VRMABCD Temp
+        - VRMEFGH Temp
 
 # Safety Settings
 safety:

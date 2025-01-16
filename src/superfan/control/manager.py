@@ -9,27 +9,30 @@ import logging
 import time
 import threading
 import re
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 import yaml
 
 from ..ipmi import IPMICommander, IPMIError
 from ..ipmi.sensors import CombinedTemperatureReader
 from .curve import FanCurve, LinearCurve, HysteresisCurve
+from .learner import FanSpeedLearner
 
 logger = logging.getLogger(__name__)
 
 class ControlManager:
     """Manages fan control loop and safety features"""
     
-    def __init__(self, config_path: str, monitor_mode: bool = False):
+    def __init__(self, config_path: str, monitor_mode: bool = False, learning_mode: bool = False):
         """Initialize control manager
         
         Args:
             config_path: Path to YAML configuration file
             monitor_mode: If True, use faster polling interval for monitoring
         """
-        # Store monitor mode
+        # Store configuration and modes
+        self.config_path = config_path
         self.monitor_mode = monitor_mode
+        self.learning_mode = learning_mode
         
         # Load configuration
         with open(config_path) as f:
@@ -239,9 +242,10 @@ class ControlManager:
     def _emergency_action(self) -> None:
         """Take emergency action when safety check fails"""
         try:
-            # Set maximum fan speed
-            self.commander.set_fan_speed(100)
-            logger.warning("Emergency action: fans set to 100%")
+            # Set maximum fan speed for both zones
+            self.commander.set_fan_speed(100, zone="chassis")
+            self.commander.set_fan_speed(100, zone="cpu")
+            logger.warning("Emergency action: all fans set to 100%")
             
             # Verify fan response
             if not self._verify_fan_speeds(min_speed=90):  # Expect near max speed
@@ -284,11 +288,11 @@ class ControlManager:
                         logger.warning(f"No valid temperature for zone {zone_name}")
                         continue
                         
-                    # Calculate and set fan speed
+                    # Calculate and set fan speed for specific zone
                     speed = curve.get_speed(temp_delta)
-                    self.commander.set_fan_speed(speed)
+                    self.commander.set_fan_speed(speed, zone=zone_name)
                     
-                    logger.debug(f"Zone {zone_name}: {temp_delta:.1f}°C -> {speed}%")
+                    logger.debug(f"Zone {zone_name}: {temp_delta:.1f}°C -> {speed}% (Fan Zone {1 if zone_name == 'cpu' else 0})")
                     
             except Exception as e:
                 logger.error(f"Control loop error: {e}")
@@ -298,6 +302,15 @@ class ControlManager:
             interval = self.config["fans"]["monitor_interval"] if self.monitor_mode else self.config["fans"]["polling_interval"]
             time.sleep(interval)
 
+    def learn_min_speeds(self) -> Dict[str, int]:
+        """Learn minimum stable fan speeds
+        
+        Returns:
+            Dictionary of learned minimum speeds by zone
+        """
+        learner = FanSpeedLearner(self.commander, self.config_path)
+        return learner.learn_min_speeds()
+
     def start(self) -> None:
         """Start the control loop"""
         with self._lock:
@@ -306,6 +319,16 @@ class ControlManager:
                 
             # Set manual mode
             self.commander.set_manual_mode()
+            
+            # If in learning mode, learn speeds first
+            if self.learning_mode:
+                logger.info("Starting fan speed learning")
+                min_speeds = self.learn_min_speeds()
+                logger.info(f"Learned minimum speeds: {min_speeds}")
+                # Reload configuration with new speeds
+                with open(self.config_path) as f:
+                    self.config = yaml.safe_load(f)
+                self._init_fan_curves()
             
             # Start control thread
             self._running = True

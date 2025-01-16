@@ -64,6 +64,12 @@ class CLI:
             help="Set manual fan speed (0-100)"
         )
         
+        parser.add_argument(
+            "--learn",
+            action="store_true",
+            help="Learn minimum stable fan speeds"
+        )
+        
         return parser
 
     def _setup_config(self, config_path: str) -> str:
@@ -174,10 +180,21 @@ class CLI:
             # Setup configuration
             config_path = self._setup_config(args.config)
             
-            # Initialize control manager with monitor mode flag
-            self.manager = ControlManager(config_path, monitor_mode=bool(args.monitor))
+            # Initialize control manager with mode flags
+            self.manager = ControlManager(
+                config_path, 
+                monitor_mode=bool(args.monitor),
+                learning_mode=bool(args.learn)
+            )
             
-            if args.manual is not None:
+            if args.learn:
+                # Start learning mode
+                print("Starting fan speed learning mode...")
+                self.manager.start()
+                print("Learning complete. Updated configuration saved.")
+                self.manager.stop()
+                
+            elif args.manual is not None:
                 # Set manual fan speed
                 self.manager.commander.set_manual_mode()
                 self.manager.commander.set_fan_speed(args.manual)

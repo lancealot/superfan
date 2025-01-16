@@ -138,7 +138,16 @@ superfan/
 - Build basic CLI interface
 - Add real-time monitoring
 
-### Phase 4: Advanced Features
+### Phase 4: Fan Speed Learning
+- Implemented automatic fan speed learning capability:
+  * Safe discovery of minimum stable fan speeds
+  * Progressive testing from current minimum
+  * Stability verification at each speed level
+  * Automatic configuration updates
+  * Safety-first approach with fallback mechanisms
+  * Proper cleanup and BMC control restoration
+
+### Phase 5: Advanced Features
 - Multiple fan curve profiles
 - Temperature trending
 - Emergency thermal protection
@@ -153,6 +162,24 @@ superfan/
     - Per-drive temperature tracking
     - Integration with fan curves
     - Health status monitoring
+
+### Fan Speed Learning Implementation
+- New Components Added:
+  * FanSpeedLearner class in control/learner.py
+  * Learning mode integration in ControlManager
+  * CLI support for --learn flag
+  * Documentation in README.md and USAGE.md
+- Safety Features:
+  * Gradual speed reduction with stability checks
+  * Minimum 5% speed limit
+  * Automatic BMC control restoration
+  * Error handling and cleanup
+  * RPM verification at each step
+- Configuration Integration:
+  * Automatic updates to config.yaml
+  * Preservation of other settings
+  * Backup of original configuration
+  * Validation of learned values
 
 ### Fan Speed Testing Results (Latest)
 - CPU Fan Speed Testing:

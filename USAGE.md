@@ -150,6 +150,30 @@ superfan --manual 50  # Set fans to 50%
 superfan -c /path/to/config.yaml
 ```
 
+5. Learn minimum stable fan speeds:
+```bash
+superfan --learn
+```
+
+The learning mode will:
+- Start from the current minimum speed
+- Gradually decrease fan speeds
+- Find the lowest stable speed for each zone
+- Update the configuration file with learned values
+- Ensure system safety during the learning process
+
+Note: Learning mode requires about 5-10 minutes to complete as it carefully tests each speed level. During the learning process:
+- The system will test progressively lower speeds
+- Each speed is tested for stability over several seconds
+- If unstable speeds are detected, it will revert to the last stable speed
+- The configuration file is automatically updated with learned values
+- BMC control is automatically restored after learning completes
+
+For optimal results:
+- Run learning mode when system is at idle
+- Ensure ambient temperature is at typical operating levels
+- Allow the learning process to complete without interruption
+
 ## Safety Features
 
 Superfan includes several safety features:

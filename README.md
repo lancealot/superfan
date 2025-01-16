@@ -16,6 +16,7 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
   * Normal mode: 30-second polling interval for reduced system overhead
   * Monitor mode: 5-second polling for responsive real-time monitoring
 - Manual control options for direct fan speed adjustment
+- Automatic learning of minimum stable fan speeds
 
 ## Requirements
 
@@ -23,6 +24,15 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
 - ipmitool
 - nvme-cli
 - Supermicro server with IPMI support
+
+## Features Details
+
+### Fan Speed Learning
+- Automatically discovers lowest stable fan speeds
+- Safely tests decreasing speeds while monitoring stability
+- Updates configuration with learned minimum speeds
+- Prevents fan stall by maintaining safe minimum RPM
+- Improves system noise levels while ensuring reliability
 
 ## Installation
 

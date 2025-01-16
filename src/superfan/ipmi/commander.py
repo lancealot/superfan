@@ -7,6 +7,7 @@ and managing fan control on Supermicro servers.
 
 import subprocess
 import logging
+import time
 from typing import Optional, List, Dict, Tuple, Union
 from enum import Enum
 
@@ -136,11 +137,13 @@ class IPMICommander:
         except ValueError as e:
             raise IPMIError(f"Invalid command format: {e}")
 
-    def _execute_ipmi_command(self, command: str) -> str:
+    def _execute_ipmi_command(self, command: str, retries: int = 3, retry_delay: float = 1.0) -> str:
         """Execute an IPMI command and return its output
 
         Args:
             command: IPMI command to execute
+            retries: Number of retry attempts
+            retry_delay: Delay between retries in seconds
 
         Returns:
             Command output as string
@@ -165,21 +168,37 @@ class IPMICommander:
                 "-P", self.password
             ]
         
-        full_cmd = base_cmd + command.split()
-        try:
-            result = subprocess.run(
-                full_cmd,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            return result.stdout.strip()
-        except subprocess.CalledProcessError as e:
-            if "Error in open session" in e.stderr:
-                raise IPMIConnectionError(f"Failed to connect to IPMI: {e.stderr}")
-            raise IPMICommandError(f"Command failed: {e.stderr}")
-        except Exception as e:
-            raise IPMIError(f"Unexpected error: {str(e)}")
+        last_error = None
+        for attempt in range(retries):
+            if attempt > 0:
+                time.sleep(retry_delay)
+                logger.debug(f"Retrying IPMI command (attempt {attempt + 1}/{retries})")
+                
+            full_cmd = base_cmd + command.split()
+            try:
+                result = subprocess.run(
+                    full_cmd,
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                return result.stdout.strip()
+            except subprocess.CalledProcessError as e:
+                last_error = e
+                if "Device or resource busy" in e.stderr:
+                    logger.debug(f"IPMI device busy, retrying... ({attempt + 1}/{retries})")
+                    continue
+                if "Error in open session" in e.stderr:
+                    raise IPMIConnectionError(f"Failed to connect to IPMI: {e.stderr}")
+                if attempt == retries - 1:  # Last attempt
+                    raise IPMICommandError(f"Command failed after {retries} attempts: {e.stderr}")
+            except Exception as e:
+                last_error = e
+                if attempt == retries - 1:  # Last attempt
+                    raise IPMIError(f"Unexpected error after {retries} attempts: {str(e)}")
+                
+        # If we get here, all retries failed
+        raise IPMIError(f"Command failed after {retries} attempts: {str(last_error)}")
 
     def detect_board_generation(self) -> MotherboardGeneration:
         """Detect the Supermicro motherboard generation
@@ -292,18 +311,22 @@ class IPMICommander:
             
         logger.info("Fan control restored to automatic mode")
 
-    def set_fan_speed(self, speed_percent: int) -> None:
-        """Set fan speed as percentage
+    def set_fan_speed(self, speed_percent: int, zone: str = "chassis") -> None:
+        """Set fan speed as percentage for a specific zone
 
         Args:
             speed_percent: Fan speed percentage (0-100)
+            zone: Fan zone ("chassis" or "cpu")
 
         Raises:
-            ValueError: If speed_percent is out of range
+            ValueError: If speed_percent is out of range or invalid zone
             IPMIError: If command fails
         """
         if not 0 <= speed_percent <= 100:
             raise ValueError("Fan speed must be between 0 and 100")
+            
+        if zone not in ["chassis", "cpu"]:
+            raise ValueError("Zone must be 'chassis' or 'cpu'")
             
         if self.board_gen == MotherboardGeneration.UNKNOWN:
             raise IPMIError("Unknown board generation")
@@ -311,12 +334,17 @@ class IPMICommander:
         # Convert percentage to hex
         hex_speed = format(int(speed_percent * 255 / 100), '02x')
         
-        # Get base command and append hex speed
+        # Get base command
         base_command = self.COMMANDS[self.board_gen]["SET_FAN_SPEED"]
-        command = f"{base_command} 0x{hex_speed}"
+        
+        # Set zone ID (0x00 for chassis, 0x01 for CPU)
+        zone_id = "0x01" if zone == "cpu" else "0x00"
+        
+        # Construct full command with zone and speed
+        command = f"{base_command} {zone_id} 0x{hex_speed}"
         
         self._execute_ipmi_command(command)
-        logger.info(f"Fan speed set to {speed_percent}%")
+        logger.info(f"{zone.title()} fan speed set to {speed_percent}%")
 
     def get_sensor_readings(self) -> List[Dict[str, Union[str, float, int]]]:
         """Get temperature sensor readings
