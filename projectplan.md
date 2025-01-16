@@ -372,6 +372,12 @@ superfan/
      * Renamed StepFanCurve to StepCurve
      * Renamed HysteresisFanCurve to HysteresisCurve
      * Updated imports in manager.py and __init__.py
+   - Optimized fan speed control:
+     * Added tracking of current fan speeds to prevent redundant updates
+     * Fan speeds are now only set when they actually change
+     * Improved logging to only show fan speed changes
+     * Reduced unnecessary IPMI commands
+     * Added current_speeds tracking in ControlManager
 
 2. Integration Tests
    - End-to-end control flow

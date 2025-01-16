@@ -34,6 +34,9 @@ class ControlManager:
         self.monitor_mode = monitor_mode
         self.learning_mode = learning_mode
         
+        # Track current fan speeds to avoid unnecessary updates
+        self.current_speeds = {}
+        
         # Load configuration
         with open(config_path) as f:
             self.config = yaml.safe_load(f)
@@ -288,11 +291,17 @@ class ControlManager:
                         logger.warning(f"No valid temperature for zone {zone_name}")
                         continue
                         
-                    # Calculate and set fan speed for specific zone
+                    # Calculate fan speed for specific zone
                     speed = curve.get_speed(temp_delta)
-                    self.commander.set_fan_speed(speed, zone=zone_name)
                     
-                    logger.debug(f"Zone {zone_name}: {temp_delta:.1f}°C -> {speed}% (Fan Zone {1 if zone_name == 'cpu' else 0})")
+                    # Only update if speed has changed
+                    current_speed = self.current_speeds.get(zone_name)
+                    if current_speed != speed:
+                        self.commander.set_fan_speed(speed, zone=zone_name)
+                        logger.info(f"Fan speed set to {speed}% for zone {zone_name}")
+                        self.current_speeds[zone_name] = speed
+                    
+                    logger.debug(f"Zone {zone_name}: {temp_delta:.1f}°C -> {speed}% (current)")
                     
             except Exception as e:
                 logger.error(f"Control loop error: {e}")
