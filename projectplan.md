@@ -2,6 +2,22 @@
 
 ## Project Overview
 ### Installation & Uninstallation Improvements (Latest Update)
+
+4. Installation Path Standardization
+   - Standardized binary installation to /usr/local/bin for consistency
+   - Modified components for path standardization:
+     * Updated superfan.service to use /usr/local/bin/superfan
+     * Modified RPM spec file to install to /usr/local/bin
+     * Ensures consistent installation location across install methods:
+       - RPM package installation
+       - Manual installation via install.sh
+       - pip install (default behavior)
+   - Rationale:
+     * /usr/local/bin is the standard location for locally installed executables
+     * Follows Linux Filesystem Hierarchy Standard (FHS) guidelines
+     * Avoids conflicts with package manager controlled /usr/bin
+     * Consistent with pip's default installation behavior
+
 1. Installation Process
    - Verified systemd service integration
    - Package installation with pip

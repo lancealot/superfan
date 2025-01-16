@@ -31,7 +31,9 @@ monitoring, zone-based fan control, and custom fan curves.
 %py3_build
 
 %install
-%py3_install
+# Override default installation path to use /usr/local/bin
+PYTHONPATH=%{buildroot}%{python3_sitelib} \
+    %{__python3} setup.py install --skip-build --root %{buildroot} --prefix=/usr/local
 
 # Create config directory
 mkdir -p %{buildroot}%{_sysconfdir}/superfan
@@ -63,9 +65,9 @@ modprobe ipmi_si >/dev/null 2>&1 || :
 %files
 %license LICENSE
 %doc README.md USAGE.md
-%{python3_sitelib}/%{name}
-%{python3_sitelib}/%{name}-%{version}*
-%{_bindir}/superfan
+/usr/local/lib/python3.12/site-packages/superfan
+/usr/local/lib/python3.12/site-packages/superfan-%{version}*
+/usr/local/bin/superfan
 %dir %{_sysconfdir}/superfan
 %config(noreplace) %{_sysconfdir}/superfan/config.yaml
 %{_unitdir}/superfan.service
