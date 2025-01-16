@@ -186,6 +186,14 @@ superfan/
 
 ## Testing Strategy
 1. Latest Changes
+   - Modified polling intervals:
+     * Normal operation: 30 second polling interval for efficient operation
+     * Monitor mode: 5 second polling for responsive monitoring
+     * Reduced system overhead during normal operation
+     * Maintains quick response time when actively monitoring
+     * Verified both intervals work correctly with safety features
+     * Watchdog and emergency timeouts remain compatible
+
    - Added NVMe temperature monitoring:
      * Successfully integrated nvme-cli for drive temperature readings
      * Implemented automatic drive discovery

@@ -100,61 +100,71 @@ class CLI:
         # Hide cursor
         curses.curs_set(0)
         
+        # Get terminal size
+        max_y, max_x = stdscr.getmaxyx()
+        
+        # Create main window
+        win = curses.newwin(max_y, max_x, 0, 0)
+        win.keypad(True)
+        
         while self._running:
             try:
                 # Get current status
                 status = self.manager.get_status()
                 
-                # Clear screen
-                stdscr.clear()
+                # Clear window
+                win.clear()
                 
                 # Display header
-                stdscr.addstr(0, 0, "Superfan Monitor", curses.A_BOLD)
-                stdscr.addstr(1, 0, "=" * 50)
+                win.addstr(0, 0, "Superfan Monitor", curses.A_BOLD)
+                win.addstr(1, 0, "=" * 50)
                 
                 # Display status
                 row = 2
-                stdscr.addstr(row, 0, "Status: ")
+                win.addstr(row, 0, "Status: ")
                 if status["emergency"]:
-                    stdscr.addstr("EMERGENCY", curses.color_pair(3) | curses.A_BOLD)
+                    win.addstr("EMERGENCY", curses.color_pair(3) | curses.A_BOLD)
                 else:
-                    stdscr.addstr("Normal", curses.color_pair(1))
+                    win.addstr("Normal", curses.color_pair(1))
                     
                 # Display temperatures
                 row += 2
-                stdscr.addstr(row, 0, "Temperatures:", curses.A_BOLD)
+                win.addstr(row, 0, "Temperatures:", curses.A_BOLD)
                 for sensor, temp in status["temperatures"].items():
                     row += 1
+                    win.addstr(row, 2, f"{sensor}: ")
                     color = curses.color_pair(1)
                     if temp >= 75:
                         color = curses.color_pair(3)
                     elif temp >= 65:
                         color = curses.color_pair(2)
-                    stdscr.addstr(row, 2, f"{sensor}: ")
-                    stdscr.addstr(f"{temp:.1f}°C", color)
+                    win.addstr(f"{temp:.1f}°C", color)
                     
                 # Display fan speeds
                 row += 2
-                stdscr.addstr(row, 0, "Fan Speeds:", curses.A_BOLD)
+                win.addstr(row, 0, "Fan Speeds:", curses.A_BOLD)
                 for zone, speed in status["fan_speeds"].items():
                     row += 1
-                    stdscr.addstr(row, 2, f"{zone}: {speed}%")
+                    win.addstr(row, 2, f"{zone}: {speed}%")
                     
                 # Display footer
                 row += 2
-                stdscr.addstr(row, 0, "=" * 50)
-                stdscr.addstr(row + 1, 0, "Press Ctrl+C to exit")
+                win.addstr(row, 0, "=" * 50)
+                win.addstr(row + 1, 0, "Press Ctrl+C to exit")
                 
-                # Refresh display
-                stdscr.refresh()
+                # Refresh window
+                win.refresh()
                 
-                # Wait before next update
-                time.sleep(1)
+                # Wait before next update - use monitor_interval in monitor mode
+                interval = self.manager.config["fans"]["monitor_interval"]
+                time.sleep(interval)
                 
             except curses.error:
                 # Handle terminal resize
-                stdscr.clear()
-                stdscr.refresh()
+                max_y, max_x = stdscr.getmaxyx()
+                win.resize(max_y, max_x)
+                win.clear()
+                win.refresh()
                 
     def run(self) -> None:
         """Run the CLI interface"""
@@ -164,8 +174,8 @@ class CLI:
             # Setup configuration
             config_path = self._setup_config(args.config)
             
-            # Initialize control manager
-            self.manager = ControlManager(config_path)
+            # Initialize control manager with monitor mode flag
+            self.manager = ControlManager(config_path, monitor_mode=bool(args.monitor))
             
             if args.manual is not None:
                 # Set manual fan speed
@@ -182,9 +192,22 @@ class CLI:
                     self._running = False
                 signal.signal(signal.SIGINT, signal_handler)
                 
-                # Run monitor display
-                self._running = True
-                curses.wrapper(self._monitor_display)
+                # Initialize curses
+                stdscr = curses.initscr()
+                curses.noecho()
+                curses.cbreak()
+                stdscr.keypad(True)
+                
+                try:
+                    # Run monitor display
+                    self._running = True
+                    self._monitor_display(stdscr)
+                finally:
+                    # Clean up curses
+                    curses.nocbreak()
+                    stdscr.keypad(False)
+                    curses.echo()
+                    curses.endwin()
                 
                 # Stop control loop
                 self.manager.stop()

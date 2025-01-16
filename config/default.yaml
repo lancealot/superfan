@@ -17,10 +17,11 @@ temperature:
 
 # Fan Control Settings
 fans:
-  polling_interval: 5  # Seconds between temperature checks
-  min_speed: 30       # Minimum fan speed percentage
-  max_speed: 100      # Maximum fan speed percentage
-  ramp_step: 2        # Maximum fan speed change per interval
+  polling_interval: 30      # Seconds between temperature checks during normal operation
+  monitor_interval: 5       # Faster polling interval when monitoring (seconds)
+  min_speed: 30            # Minimum fan speed percentage
+  max_speed: 100           # Maximum fan speed percentage
+  ramp_step: 2             # Maximum fan speed change per interval
   
   # Fan Zones Configuration
   zones:

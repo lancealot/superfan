@@ -21,12 +21,16 @@ logger = logging.getLogger(__name__)
 class ControlManager:
     """Manages fan control loop and safety features"""
     
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str, monitor_mode: bool = False):
         """Initialize control manager
         
         Args:
             config_path: Path to YAML configuration file
+            monitor_mode: If True, use faster polling interval for monitoring
         """
+        # Store monitor mode
+        self.monitor_mode = monitor_mode
+        
         # Load configuration
         with open(config_path) as f:
             self.config = yaml.safe_load(f)
@@ -290,8 +294,9 @@ class ControlManager:
                 logger.error(f"Control loop error: {e}")
                 self._emergency_action()
                 
-            # Wait for next iteration
-            time.sleep(self.config["fans"]["polling_interval"])
+            # Wait for next iteration - use monitor_interval if in monitor mode
+            interval = self.config["fans"]["monitor_interval"] if self.monitor_mode else self.config["fans"]["polling_interval"]
+            time.sleep(interval)
 
     def start(self) -> None:
         """Start the control loop"""

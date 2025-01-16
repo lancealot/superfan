@@ -12,7 +12,10 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
   * CPU fan zone (FANA controlled independently)
 - Custom fan curves and temperature thresholds
 - Safety-first approach with thermal protection
-- Real-time monitoring and manual control options
+- Efficient dual-mode operation:
+  * Normal mode: 30-second polling interval for reduced system overhead
+  * Monitor mode: 5-second polling for responsive real-time monitoring
+- Manual control options for direct fan speed adjustment
 
 ## Requirements
 
