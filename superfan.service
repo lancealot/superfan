@@ -6,7 +6,7 @@ StartLimitIntervalSec=0
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/superfan
+ExecStart=/usr/bin/superfan
 Restart=always
 RestartSec=5
 # Give the service time to read sensors and adjust fans
