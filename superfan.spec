@@ -55,6 +55,9 @@ echo "ipmi_si" >> %{buildroot}%{_sysconfdir}/modules-load.d/superfan.conf
 # Load IPMI modules
 modprobe ipmi_devintf >/dev/null 2>&1 || :
 modprobe ipmi_si >/dev/null 2>&1 || :
+# Enable and start the service
+systemctl enable superfan.service >/dev/null 2>&1 || :
+systemctl start superfan.service >/dev/null 2>&1 || :
 
 %preun
 %systemd_preun superfan.service

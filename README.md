@@ -37,6 +37,8 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
 
 ## Installation
 
+### Method 1: From Source
+
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/superfan.git
@@ -45,6 +47,47 @@ cd superfan
 # Install package in development mode
 pip install -e .
 ```
+
+### Method 2: RPM Installation (Red Hat-based systems only)
+
+#### Building the RPM
+
+Prerequisites:
+- rpm-build
+- rpmdevtools
+
+Install build dependencies:
+```bash
+sudo dnf install rpm-build rpmdevtools
+```
+
+Build the RPM:
+```bash
+# Run the build script
+./buildrpm.sh
+```
+
+The built RPM files will be available in:
+- Binary RPM: ~/rpmbuild/RPMS/$(uname -m)/
+- Source RPM: ~/rpmbuild/SRPMS/
+
+#### Installing the RPM
+
+```bash
+# Install the RPM (replace x86_64 with your architecture if different)
+sudo rpm -i ~/rpmbuild/RPMS/x86_64/superfan-0.1.0-1.*.rpm
+
+# Or using dnf
+sudo dnf install ~/rpmbuild/RPMS/x86_64/superfan-0.1.0-1.*.rpm
+```
+
+The RPM installation will:
+- Install all required dependencies
+- Set up the systemd service
+- Create necessary configuration files
+- Load required IPMI kernel modules
+
+After installation, the service will be automatically started and enabled at boot.
 
 ## Development
 
