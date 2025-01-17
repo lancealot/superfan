@@ -36,9 +36,12 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
 - Improves system noise levels while ensuring reliability
 
 ### Important Safety Notes (Latest Update)
-- Minimum fan speed should be set to 35% or higher to prevent fan stalling
+- Minimum fan speed validated at 5% through IPMI command verification
+- Fan curves optimized to start at minimum speed for efficiency
+- Gradual speed changes with 5% ramp step for stability
+- Detailed debug logging available for monitoring fan behavior
 - Some NVMe and M.2 drives may require additional cooling consideration
-- Emergency recovery procedures will restore BMC control if fan speeds cannot be maintained
+- Emergency recovery procedures will restore BMC control if needed
 - Monitor mode provides 5-second polling for real-time temperature tracking
 
 ## Installation

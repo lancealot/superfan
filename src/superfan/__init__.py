@@ -1,10 +1,11 @@
-"""Superfan package."""
+import logging
 
-from .control import ControlManager
-from .ipmi import IPMICommander, CombinedTemperatureReader
+# Configure root logger
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S%f'
+)
 
-__all__ = [
-    'ControlManager',
-    'IPMICommander',
-    'CombinedTemperatureReader'
-]
+# Ensure all loggers show debug messages
+logging.getLogger('superfan').setLevel(logging.DEBUG)

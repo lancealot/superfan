@@ -117,17 +117,22 @@ class ControlManager:
         highest_temp = None
         for base_sensor in base_sensors:
             # Create pattern for this sensor
-            pattern = f"*{base_sensor.replace('1', '*').replace('2', '*')}*"
-            pattern_re = re.compile(pattern.replace("*", ".*"), re.IGNORECASE)
+            pattern = base_sensor.replace('*', '.*')  # Convert glob to regex
+            pattern_re = re.compile(pattern, re.IGNORECASE)
             
             # Check all discovered sensors against this pattern
-            for sensor_name in self.sensor_manager.get_sensor_names():
-                if pattern_re.match(sensor_name):
+            sensor_names = self.sensor_manager.get_sensor_names()
+            logger.debug(f"Checking pattern '{pattern}' against sensors: {list(sensor_names)}")
+            
+            for sensor_name in sensor_names:
+                if pattern_re.search(sensor_name):  # Use search instead of match for more flexible matching
+                    logger.debug(f"Pattern '{pattern}' matched sensor '{sensor_name}'")
                     stats = self.sensor_manager.get_sensor_stats(sensor_name)
                     if stats:
                         temp = stats["current"]
                         if highest_temp is None or temp > highest_temp:
                             highest_temp = temp
+                            logger.debug(f"New highest temperature {temp}°C from {sensor_name}")
                     
         if highest_temp is None:
             return None
@@ -295,11 +300,24 @@ class ControlManager:
                     speed = curve.get_speed(temp_delta)
                     
                     # Only update if speed has changed
-                    current_speed = self.current_speeds.get(zone_name)
+                    current_speed = self.current_speeds.get(zone_name, 0)
                     if current_speed != speed:
-                        self.commander.set_fan_speed(speed, zone=zone_name)
-                        logger.info(f"Fan speed set to {speed}% for zone {zone_name}")
-                        self.current_speeds[zone_name] = speed
+                        # Get ramp step from config
+                        ramp_step = self.config["fans"]["ramp_step"]
+                        
+                        # Calculate intermediate speed
+                        if abs(speed - current_speed) > ramp_step:
+                            if speed > current_speed:
+                                new_speed = current_speed + ramp_step
+                            else:
+                                new_speed = current_speed - ramp_step
+                        else:
+                            new_speed = speed
+                            
+                        # Set new speed and verify
+                        self.commander.set_fan_speed(new_speed, zone=zone_name)
+                        logger.info(f"Fan speed set to {new_speed}% for zone {zone_name} (target: {speed}%)")
+                        self.current_speeds[zone_name] = new_speed
                     
                     logger.debug(f"Zone {zone_name}: {temp_delta:.1f}°C -> {speed}% (current)")
                     

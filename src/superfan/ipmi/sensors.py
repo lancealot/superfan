@@ -229,12 +229,17 @@ class SensorReader:
             else:
                 # Match sensors against patterns
                 self.sensor_names = set()
+                logger.debug(f"Matching sensors against patterns: {[p.pattern for p in self.sensor_patterns]}")
                 for reading in readings:
                     name = reading["name"]
+                    logger.debug(f"Checking sensor: {name}")
                     for pattern in self.sensor_patterns:
-                        if pattern.match(name):
+                        if pattern.search(name):  # Use search instead of match for more flexible matching
+                            logger.debug(f"Sensor {name} matched pattern {pattern.pattern}")
                             self.sensor_names.add(name)
                             break
+                        else:
+                            logger.debug(f"Sensor {name} did not match pattern {pattern.pattern}")
             logger.info(f"Discovered sensors: {', '.join(self.sensor_names)}")
         except IPMIError as e:
             logger.error(f"Failed to discover sensors: {e}")
@@ -246,37 +251,60 @@ class SensorReader:
             current_time = time.time()
             readings = self.commander.get_sensor_readings()
             
+            # Log all raw readings for debugging
+            for reading in readings:
+                logger.debug(f"Raw reading: {reading['name']} = {reading.get('value')}°C (state: {reading.get('state', 'unknown')})")
+            
             # Track critical sensors for immediate notification
             critical_sensors = []
             
             # Process each reading
             for reading in readings:
                 name = reading["name"]
+                # Log sensor matching
                 if name in self.sensor_names:
+                    logger.debug(f"Processing sensor {name} (in sensor_names)")
+                    value = reading.get("value")
+                    state = reading.get("state", "ns")
+                    logger.debug(f"Sensor {name} value: {value}°C, state: {state}")
+                    
                     sensor_reading = SensorReading(
                         name=name,
-                        value=reading.get("value"),
+                        value=value,
                         timestamp=current_time,
-                        state=reading.get("state", "ns"),
+                        state=state,
                         response_id=reading.get("response_id")
                     )
-
+                    
+                    # Log validity
+                    logger.debug(f"Sensor {name} reading valid: {sensor_reading.is_valid}")
+                    
                     # Check for critical state
                     if sensor_reading.is_critical:
                         critical_sensors.append(f"{name}: {sensor_reading.value}°C")
+                        logger.debug(f"Sensor {name} is in critical state")
                     
                     # Initialize list if needed
                     if name not in self._readings:
                         self._readings[name] = []
+                        logger.debug(f"Initialized readings list for sensor {name}")
                     
                     # Add new reading
                     self._readings[name].append(sensor_reading)
+                    logger.debug(f"Added new reading for sensor {name}")
                     
                     # Remove old readings
+                    old_count = len(self._readings[name])
                     self._readings[name] = [
                         r for r in self._readings[name]
                         if r.age <= self.reading_timeout
                     ]
+                    new_count = len(self._readings[name])
+                    if old_count != new_count:
+                        logger.debug(f"Removed {old_count - new_count} old readings for sensor {name}")
+                else:
+                    logger.debug(f"Skipping sensor {name} (not in sensor_names)")
+                    continue
             
             # Log critical sensors immediately
             if critical_sensors:
@@ -309,13 +337,18 @@ class SensorReader:
             or None if insufficient valid readings
         """
         if sensor_name not in self._readings:
+            logger.debug(f"No readings found for sensor {sensor_name}")
             return None
             
         readings = self._readings[sensor_name]
+        logger.debug(f"Found {len(readings)} total readings for sensor {sensor_name}")
+        
         # Filter out both old readings and invalid readings (no reading/ns)
         valid_readings = [r for r in readings if r.age <= self.reading_timeout and r.is_valid]
+        logger.debug(f"Found {len(valid_readings)} valid readings for sensor {sensor_name}")
         
         if len(valid_readings) < self.min_readings:
+            logger.debug(f"Insufficient valid readings for sensor {sensor_name}: {len(valid_readings)} < {self.min_readings}")
             return None
             
         values = [r.value for r in valid_readings]

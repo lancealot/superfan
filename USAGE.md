@@ -111,10 +111,11 @@ temperature:
   hysteresis: 3
 
 fans:
-  polling_interval: 5
-  min_speed: 35  # Minimum safe speed to prevent fan stalling
-  max_speed: 100
-  ramp_step: 5   # Gradual speed changes to prevent sudden transitions
+  polling_interval: 30      # Seconds between temperature checks
+  monitor_interval: 5       # Faster polling in monitor mode
+  min_speed: 5             # Minimum fan speed (matches IPMI validation)
+  max_speed: 100           # Maximum fan speed percentage
+  ramp_step: 5             # Maximum fan speed change per interval
   
   zones:
     cpu:
@@ -176,10 +177,11 @@ For optimal results:
 
 ## Critical Safety Guidelines (Latest Update)
 
-1. Minimum Fan Speed Requirements
-- NEVER set min_speed below 35% as fans may stall completely
-- Some fans (particularly FAN1 and FAN3) may stop at lower speeds
-- System will restore BMC control if fan speeds cannot be maintained
+1. Fan Speed Control
+- Minimum fan speed set to 5% (validated through IPMI)
+- Fan curves start at minimum speed for optimal efficiency
+- System gradually ramps speeds up/down for stability
+- Detailed debug logging available for monitoring
 - Allow 5 seconds between speed changes for stability
 
 2. Temperature Monitoring

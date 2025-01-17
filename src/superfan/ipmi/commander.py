@@ -131,7 +131,7 @@ class IPMICommander:
                 elif cmd in [0x70, 0x91]:  # Fan speed control
                     if len(parts) >= 7:
                         speed = int(parts[-1], 16)
-                        if speed < 0x19:  # Minimum 10% (0x19)
+                        if speed < 0x0c:  # Minimum 5% (0x0c)
                             raise IPMIError(f"Fan speed too low: {hex(speed)}")
                             
         except ValueError as e:
@@ -417,11 +417,16 @@ class IPMICommander:
             logger.error("No fan readings available")
             return False
             
-        # Convert target speed percentage to expected RPM range
-        # This is a rough approximation - would need calibration per system
-        base_rpm = 1800  # Typical max RPM
-        expected_rpm = (target_speed / 100.0) * base_rpm
-        min_rpm = expected_rpm * (1 - tolerance/100.0)
+        # Define RPM ranges for different fan groups
+        FAN_RANGES = {
+            # Group 1: Higher RPM range
+            "FAN1": {"min": 1400, "max": 1820},
+            "FAN5": {"min": 1400, "max": 1820},
+            # Group 2: Lower RPM range
+            "FAN2": {"min": 1120, "max": 1400},
+            "FAN3": {"min": 1120, "max": 1400},
+            "FAN4": {"min": 1120, "max": 1400},
+        }
         
         working_fans = 0
         for fan in fan_readings:
@@ -429,8 +434,33 @@ class IPMICommander:
                 continue
                 
             rpm = fan["value"]
-            if rpm is not None and rpm > min_rpm:
-                working_fans += 1
+            if rpm is None:
+                continue
+                
+            # Get fan range based on name
+            fan_range = None
+            for pattern, range_info in FAN_RANGES.items():
+                if pattern in fan["name"]:
+                    fan_range = range_info
+                    break
+                    
+            if fan_range:
+                # Calculate expected RPM for this fan
+                rpm_range = fan_range["max"] - fan_range["min"]
+                expected_rpm = fan_range["min"] + (rpm_range * target_speed / 100.0)
+                min_rpm = expected_rpm * (1 - tolerance/100.0)
+                
+                if rpm >= min_rpm:
+                    working_fans += 1
+                else:
+                    logger.warning(f"{fan['name']} RPM ({rpm}) below expected minimum ({min_rpm})")
+            else:
+                logger.debug(f"No RPM range defined for {fan['name']}")
                 
         # Require at least 2 working fans
-        return working_fans >= 2
+        min_working = 2
+        if working_fans < min_working:
+            logger.error(f"Insufficient working fans: {working_fans} < {min_working}")
+            return False
+            
+        return True

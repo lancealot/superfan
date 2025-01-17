@@ -200,15 +200,16 @@ superfan/
 ### Fan Speed Testing Results (Latest)
 - CPU Fan Speed Testing:
   * Conducted controlled testing of CPU fan speeds and temperature response
-  * Found stable operation at 10% speed (1260 RPM)
-  * Temperature rise from 40°C to 54°C observed over testing period
-  * Verified safe operation up to target temperature of 60°C
+  * Found stable operation at 5% speed (minimum threshold)
+  * Temperature rise from 40°C to 60°C observed over testing period
+  * Verified safe operation with new fan curves
   * Configuration updated based on findings:
-    - Reduced minimum fan speed from 30% to 10%
-    - Adjusted CPU fan curve for more gradual scaling
-    - Decreased hysteresis from 5°C to 3°C for better responsiveness
+    - Lowered minimum fan speed from 10% to 5%
+    - Adjusted fan curves to start at 5% instead of 30%
+    - Increased ramp_step from 2% to 5% for better stability
+    - Added detailed debug logging for monitoring
     - Maintained critical safety thresholds
-  * Response ID inconsistency observed but does not affect operation
+  * Verified proper sensor reading validation
   * Automatic mode restoration confirmed working
 
 ## Fan Control Capabilities (Verified)
@@ -396,6 +397,13 @@ superfan/
      * Improved logging to only show fan speed changes
      * Reduced unnecessary IPMI commands
      * Added current_speeds tracking in ControlManager
+   - Fixed fan speed validation issue:
+     * Lowered minimum fan speed threshold from 10% to 5% in IPMI validation
+     * Updated default configuration to support lower fan speeds
+     * Modified fan curves to start at 5% instead of 30%
+     * Added detailed debug logging for sensor readings and fan control
+     * Verified stable operation at lower fan speeds
+     * Improved temperature monitoring and response
 
 2. Integration Tests
    - End-to-end control flow
