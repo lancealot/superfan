@@ -137,8 +137,8 @@ class ControlManager:
         if highest_temp is None:
             return None
             
-        # Calculate delta from target
-        target_temp = self.config["temperature"]["target"]
+        # Calculate delta from zone-specific target
+        target_temp = self.config["fans"]["zones"][zone_name]["target"]
         return max(0, highest_temp - target_temp)
 
     def _verify_fan_speeds(self, min_speed: int = None) -> bool:
@@ -217,6 +217,7 @@ class ControlManager:
                 all_temps.extend(ipmi_temps)
             
             # NVMe temperature readings
+            nvme_temps = []  # Initialize as empty list
             nvme_stats = self.sensor_manager.nvme_reader.get_all_stats()
             if nvme_stats:
                 nvme_temps = [stats["current"] for stats in nvme_stats.values()]
@@ -226,10 +227,33 @@ class ControlManager:
                 logger.error("No temperature readings available from any source")
                 return False
             
-            max_temp = max(all_temps)
-            if max_temp >= self.config["temperature"]["critical_max"]:
-                logger.error(f"Critical temperature reached: {max_temp}°C")
-                return False
+            # Check temperatures against zone-specific thresholds
+            for zone_name, zone_config in self.config["fans"]["zones"].items():
+                if not zone_config["enabled"]:
+                    continue
+
+                # Get zone-specific sensors
+                zone_temps = []
+                base_sensors = zone_config["sensors"]
+                
+                for base_sensor in base_sensors:
+                    pattern = base_sensor.replace('*', '.*')
+                    pattern_re = re.compile(pattern, re.IGNORECASE)
+                    
+                    # Check IPMI temperatures
+                    for reading in temp_readings:
+                        if pattern_re.search(reading["name"]) and reading["value"] is not None:
+                            zone_temps.append(reading["value"])
+                    
+                    # Check NVMe temperatures if pattern matches
+                    if "NVMe" in base_sensor:
+                        zone_temps.extend(nvme_temps)
+
+                if zone_temps:
+                    max_zone_temp = max(zone_temps)
+                    if max_zone_temp >= zone_config["critical_max"]:
+                        logger.error(f"Critical temperature reached in {zone_name} zone: {max_zone_temp}°C")
+                        return False
                 
             # Check reading age
             reading_age = time.time() - self._last_valid_reading
