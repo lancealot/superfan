@@ -105,10 +105,7 @@ ipmi:
   # password: ADMIN
 
 temperature:
-  critical_max: 85
-  warning_max: 75
-  target: 65
-  hysteresis: 3
+  hysteresis: 3     # Temperature change required for speed adjustment
 
 fans:
   polling_interval: 30      # Seconds between temperature checks
@@ -118,8 +115,27 @@ fans:
   ramp_step: 5             # Maximum fan speed change per interval
   
   zones:
-    cpu:
+    chassis:  # Zone 0: Controls FAN1-5 as a group
       enabled: true
+      # Temperature thresholds specific to chassis zone
+      critical_max: 75  # Emergency threshold - will set fans to 100%
+      warning_max: 65   # Warning threshold - will increase fan speed
+      target: 55        # Desired operating temperature
+      sensors: ["System Temp", "Peripheral Temp", "NVMe_*", "M2_SSD*"]
+      curve:
+        - [0, 5]     # [temp_delta, fan_speed]
+        - [10, 30]
+        - [20, 50]
+        - [30, 70]
+        - [40, 85]
+        - [50, 100]
+
+    cpu:  # Zone 1: Controls FANA (CPU fan)
+      enabled: true
+      # Temperature thresholds specific to CPU zone
+      critical_max: 85  # Emergency threshold - will set fans to 100%
+      warning_max: 75   # Warning threshold - will increase fan speed
+      target: 65        # Desired operating temperature
       sensors: ["CPU1 Temp", "CPU2 Temp"]
       curve:
         - [0, 20]    # [temp_delta, fan_speed]

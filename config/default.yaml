@@ -8,11 +8,8 @@ ipmi:
   # username: ADMIN
   # password: ADMIN
 
-# Temperature Thresholds (in Celsius)
+# Global Temperature Settings
 temperature:
-  critical_max: 85  # Emergency threshold - will set fans to 100%
-  warning_max: 75   # Warning threshold - will increase fan speed
-  target: 60        # Desired operating temperature
   hysteresis: 3     # Temperature change required for speed adjustment
 
 # Fan Control Settings
@@ -30,6 +27,10 @@ fans:
       # Fan RPM ranges:
       # Group 1 (FAN1, FAN5): 1400-1820 RPM
       # Group 2 (FAN2-4): 1120-1400 RPM
+      # Temperature thresholds specific to chassis zone
+      critical_max: 75  # Emergency threshold - will set fans to 100%
+      warning_max: 65   # Warning threshold - will increase fan speed
+      target: 55        # Desired operating temperature
       curve:
         - [0, 5]     # [temp_delta, fan_speed]
         - [10, 30]
@@ -47,6 +48,10 @@ fans:
         
     cpu:  # Zone 1: Controls FANA (CPU fan)
       enabled: true
+      # Temperature thresholds specific to CPU zone
+      critical_max: 85  # Emergency threshold - will set fans to 100%
+      warning_max: 75   # Warning threshold - will increase fan speed
+      target: 65        # Desired operating temperature
       curve:
         - [0, 5]
         - [5, 30]

@@ -163,7 +163,22 @@ superfan/
   * Safety-first approach with fallback mechanisms
   * Proper cleanup and BMC control restoration
 
-### Phase 5: Advanced Features
+### Phase 5: Zone-Specific Temperature Management
+- Implemented independent temperature thresholds for each zone:
+  * Moved global temperature parameters to zone-specific settings
+  * Chassis zone (FAN1-5):
+    - Lower thresholds for system and storage cooling
+    - Critical: 75°C, Warning: 65°C, Target: 55°C
+    - Optimized for NVMe and M.2 SSD temperatures
+  * CPU zone (FANA):
+    - Higher thresholds for processor cooling
+    - Critical: 85°C, Warning: 75°C, Target: 65°C
+    - Tuned for CPU and VRM temperatures
+  * Each zone independently monitors its sensors
+  * Emergency actions triggered by zone-specific limits
+  * Improved temperature management granularity
+
+### Phase 6: Advanced Features
 - Multiple fan curve profiles
 - Temperature trending
 - Emergency thermal protection

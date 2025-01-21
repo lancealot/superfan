@@ -10,7 +10,10 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
 - Zone-based fan control:
   * Chassis fan zone (FAN1-5 controlled as a group)
   * CPU fan zone (FANA controlled independently)
-- Custom fan curves and temperature thresholds
+- Zone-specific fan curves and temperature thresholds:
+  * Independent critical, warning, and target temperatures for each zone
+  * Chassis zone optimized for system and storage cooling
+  * CPU zone optimized for processor thermal management
 - Safety-first approach with thermal protection
 - Efficient dual-mode operation:
   * Normal mode: 30-second polling interval for reduced system overhead
