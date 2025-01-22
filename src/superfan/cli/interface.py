@@ -25,6 +25,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Set default log levels for superfan modules
+for name in ['superfan.ipmi.commander', 'superfan.ipmi.sensors', 'superfan.control.manager']:
+    logging.getLogger(name).setLevel(logging.INFO)
+
 class CLI:
     """Command-line interface handler"""
     
@@ -53,9 +57,15 @@ class CLI:
         parser.add_argument(
             "--monitor",
             action="store_true",
-            help="Monitor temperatures and fan speeds"
+            help="Monitor temperatures and fan speeds",
         )
-        
+
+        parser.add_argument(
+            "--debug",
+            action="store_true",
+            help="Enable debug logging in monitor mode"
+        )
+
         parser.add_argument(
             "--manual",
             type=int,
@@ -180,9 +190,14 @@ class CLI:
             # Setup configuration
             config_path = self._setup_config(args.config)
             
+            # Set debug logging if requested
+            if args.debug:
+                for name in ['superfan.ipmi.commander', 'superfan.ipmi.sensors', 'superfan.control.manager']:
+                    logging.getLogger(name).setLevel(logging.DEBUG)
+
             # Initialize control manager with mode flags
             self.manager = ControlManager(
-                config_path, 
+                config_path,
                 monitor_mode=bool(args.monitor),
                 learning_mode=bool(args.learn)
             )

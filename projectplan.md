@@ -212,7 +212,27 @@ superfan/
   * Backup of original configuration
   * Validation of learned values
 
-### Fan Speed Testing Results (Latest)
+### Fan Speed Testing Results (2025-01-21)
+- Monitor Mode Improvements:
+  * Adjusted polling intervals for better stability:
+    - Normal operation: 60 seconds (was 30)
+    - Monitor mode: 30 seconds (was 5)
+    - Watchdog timeout: 90 seconds (1.5x polling_interval)
+  * Reduced min_temp_readings from 3 to 2 for faster response while maintaining reliability
+  * Updated fan curves for more aggressive cooling:
+    - [0°C, 5%]   # At target temp (55°C)
+    - [5°C, 30%]  # 5°C over target -> 30%
+    - [10°C, 50%] # 10°C over target -> 50%
+    - [15°C, 70%] # 15°C over target -> 70%
+    - [20°C, 85%] # 20°C over target -> 85%
+    - [25°C, 100%] # 25°C over target -> 100%
+  * Testing Results:
+    - Stable temperature readings with no sensor errors
+    - Smooth fan speed transitions with 5% ramp steps
+    - Effective cooling: NVMe temps reduced from 63°C to 59°C
+    - No fan control errors or emergency states
+    - Proper handling of IPMI response validation
+
 - CPU Fan Speed Testing:
   * Conducted controlled testing of CPU fan speeds and temperature response
   * Found stable operation at 5% speed (minimum threshold)

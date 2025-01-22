@@ -14,8 +14,8 @@ temperature:
 
 # Fan Control Settings
 fans:
-  polling_interval: 30      # Seconds between temperature checks during normal operation
-  monitor_interval: 5       # Faster polling interval when monitoring (seconds)
+  polling_interval: 60      # Seconds between temperature checks during normal operation
+  monitor_interval: 30      # Faster polling interval when monitoring (seconds)
   min_speed: 5             # Minimum fan speed (matches IPMI validation threshold)
   max_speed: 100           # Maximum fan speed percentage
   ramp_step: 5             # Maximum fan speed change per interval (increased for stability)
@@ -32,12 +32,12 @@ fans:
       warning_max: 65   # Warning threshold - will increase fan speed
       target: 55        # Desired operating temperature
       curve:
-        - [0, 5]     # [temp_delta, fan_speed]
-        - [10, 30]
-        - [20, 50]
-        - [30, 70]
-        - [40, 85]
-        - [50, 100]
+        - [0, 5]     # At target temp (55°C)
+        - [5, 30]    # 5°C over target -> 30%
+        - [10, 50]   # 10°C over target -> 50%
+        - [15, 70]   # 15°C over target -> 70%
+        - [20, 85]   # 20°C over target -> 85%
+        - [25, 100]  # 25°C over target -> 100%
       # All system temperatures that affect chassis cooling
       sensors:
         - System Temp
@@ -71,8 +71,8 @@ fans:
 
 # Safety Settings
 safety:
-  watchdog_timeout: 30    # Seconds before watchdog triggers
-  min_temp_readings: 3    # Minimum required readings for reliability
+  watchdog_timeout: 90    # Seconds before watchdog triggers (1.5x polling_interval)
+  min_temp_readings: 2    # Minimum required readings for reliability
   restore_on_exit: true   # Restore BMC control on program exit
   emergency_timeout: 60   # Seconds before exiting emergency state if temps normal
   verify_commands: true   # Enable command response validation
