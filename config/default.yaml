@@ -16,28 +16,25 @@ temperature:
 fans:
   polling_interval: 60      # Seconds between temperature checks during normal operation
   monitor_interval: 30      # Faster polling interval when monitoring (seconds)
-  min_speed: 5             # Minimum fan speed (matches IPMI validation threshold)
+  min_speed: 20            # Minimum fan speed (increased for stability)
   max_speed: 100           # Maximum fan speed percentage
-  ramp_step: 5             # Maximum fan speed change per interval (increased for stability)
+  ramp_step: 5             # Maximum fan speed change per interval
   
   # Hardware Fan Control Zones
   zones:
     chassis:  # Zone 0: Controls FAN1-5 as a group
       enabled: true
       # Fan RPM ranges:
-      # Group 1 (FAN1, FAN5): 1400-1820 RPM
-      # Group 2 (FAN2-4): 1120-1400 RPM
-      # Temperature thresholds specific to chassis zone
+      # Chassis fans: 1000-2000 RPM
       critical_max: 75  # Emergency threshold - will set fans to 100%
       warning_max: 65   # Warning threshold - will increase fan speed
       target: 55        # Desired operating temperature
       curve:
-        - [0, 5]     # At target temp (55°C)
-        - [5, 30]    # 5°C over target -> 30%
-        - [10, 50]   # 10°C over target -> 50%
-        - [15, 70]   # 15°C over target -> 70%
-        - [20, 85]   # 20°C over target -> 85%
-        - [25, 100]  # 25°C over target -> 100%
+        - [0, 20]    # At target temp (55°C)
+        - [5, 40]    # 5°C over target -> 40%
+        - [10, 60]   # 10°C over target -> 60%
+        - [15, 80]   # 15°C over target -> 80%
+        - [20, 100]  # 20°C over target -> 100%
       # All system temperatures that affect chassis cooling
       sensors:
         - System Temp
@@ -48,19 +45,16 @@ fans:
         
     cpu:  # Zone 1: Controls FANA (CPU fan)
       enabled: true
-      # Temperature thresholds specific to CPU zone
+      # CPU fan: 2500-3800 RPM
       critical_max: 85  # Emergency threshold - will set fans to 100%
       warning_max: 75   # Warning threshold - will increase fan speed
       target: 65        # Desired operating temperature
       curve:
-        - [0, 5]
-        - [5, 30]
-        - [10, 45]
-        - [15, 60]
-        - [20, 70]
-        - [25, 80]
-        - [30, 90]
-        - [35, 100]
+        - [0, 20]    # At target temp (65°C)
+        - [5, 40]    # 5°C over target -> 40%
+        - [10, 60]   # 10°C over target -> 60%
+        - [15, 80]   # 15°C over target -> 80%
+        - [20, 100]  # 20°C over target -> 100%
       # CPU-specific temperatures
       sensors:
         - CPU Temp

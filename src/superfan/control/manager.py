@@ -381,6 +381,19 @@ class ControlManager:
                     self.config = yaml.safe_load(f)
                 self._init_fan_curves()
             
+            # Set initial fan speeds based on current temperatures
+            for zone_name, curve in self.fan_curves.items():
+                temp_delta = self._get_zone_temperature(zone_name)
+                if temp_delta is not None:
+                    speed = curve.get_speed(temp_delta)
+                    self.commander.set_fan_speed(speed, zone=zone_name)
+                    self.current_speeds[zone_name] = speed
+                else:
+                    # If no valid temperature, set a safe default
+                    default_speed = 30  # 30% as safe default
+                    self.commander.set_fan_speed(default_speed, zone=zone_name)
+                    self.current_speeds[zone_name] = default_speed
+            
             # Start control thread
             self._running = True
             self._control_thread = threading.Thread(target=self._control_loop)
@@ -429,11 +442,20 @@ class ControlManager:
         for sensor, stats in all_stats.items():
             status["temperatures"][sensor] = stats["current"]
             
-        # Get fan speeds for each zone
+        # Get current and target fan speeds for each zone
         for zone_name in self.fan_curves:
+            # Get current speed from tracking
+            current_speed = self.current_speeds.get(zone_name, 0)
+            
+            # Get target speed from temperature and curve
             temp_delta = self._get_zone_temperature(zone_name)
+            target_speed = None
             if temp_delta is not None:
-                speed = self.fan_curves[zone_name].get_speed(temp_delta)
-                status["fan_speeds"][zone_name] = speed
+                target_speed = self.fan_curves[zone_name].get_speed(temp_delta)
+            
+            status["fan_speeds"][zone_name] = {
+                "current": current_speed,
+                "target": target_speed
+            }
                 
         return status

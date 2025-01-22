@@ -7,6 +7,7 @@ and managing fan control on Supermicro servers.
 
 import subprocess
 import logging
+import math
 import time
 from typing import Optional, List, Dict, Tuple, Union
 from enum import Enum
@@ -70,7 +71,7 @@ class IPMICommander:
         MotherboardGeneration.H12: {
             "SET_MANUAL_MODE": "raw 0x30 0x45 0x01 0x01",
             "SET_AUTO_MODE": "raw 0x30 0x45 0x01 0x00",
-            "SET_FAN_SPEED": "raw 0x30 0x70 0x66 0x01 0x00",  # Append hex speed
+            "SET_FAN_SPEED": "raw 0x30 0x70 0x66 0x01 0x00",  # H12 needs extra 0x00 before speed
         },
         MotherboardGeneration.X13: {
             "SET_MANUAL_MODE": "raw 0x30 0x45 0x01 0x01",
@@ -131,7 +132,7 @@ class IPMICommander:
                 elif cmd in [0x70, 0x91]:  # Fan speed control
                     if len(parts) >= 7:
                         speed = int(parts[-1], 16)
-                        if speed < 0x0c:  # Minimum 5% (0x0c)
+                        if speed < 0x04:  # Minimum 2% (0x04)
                             raise IPMIError(f"Fan speed too low: {hex(speed)}")
                             
         except ValueError as e:
@@ -331,17 +332,33 @@ class IPMICommander:
         if self.board_gen == MotherboardGeneration.UNKNOWN:
             raise IPMIError("Unknown board generation")
         
-        # Convert percentage to hex
-        hex_speed = format(int(speed_percent * 255 / 100), '02x')
+        # Ensure minimum speed of 2%
+        speed_percent = max(2, speed_percent)
         
-        # Get base command
-        base_command = self.COMMANDS[self.board_gen]["SET_FAN_SPEED"]
-        
-        # Set zone ID (0x00 for chassis, 0x01 for CPU)
-        zone_id = "0x01" if zone == "cpu" else "0x00"
-        
-        # Construct full command with zone and speed
-        command = f"{base_command} {zone_id} 0x{hex_speed}"
+        # For H12 boards, we need to use a different command format
+        if self.board_gen == MotherboardGeneration.H12:
+            # Convert percentage to duty cycle (0-100)
+            duty = max(20, min(100, speed_percent))  # Ensure minimum 20%
+            hex_duty = format(duty, '02x')
+            
+            # For H12, use raw 0x30 0x91 0x5A 0x03 0x10 for chassis fans
+            # and raw 0x30 0x91 0x5A 0x03 0x11 for CPU fan
+            zone_id = "0x11" if zone == "cpu" else "0x10"
+            command = f"raw 0x30 0x91 0x5A 0x03 {zone_id} 0x{hex_duty}"
+        else:
+            # For other boards, use standard command format
+            hex_val = int(speed_percent * 255 / 100)
+            hex_val = max(4, min(255, hex_val))  # Ensure between 0x04 and 0xFF
+            hex_speed = format(hex_val, '02x')
+            
+            # Get base command
+            base_command = self.COMMANDS[self.board_gen]["SET_FAN_SPEED"]
+            
+            # Set zone ID (0x00 for chassis, 0x01 for CPU)
+            zone_id = "0x01" if zone == "cpu" else "0x00"
+            
+            # Construct full command with zone and speed
+            command = f"{base_command} {zone_id} 0x{hex_speed}"
         
         self._execute_ipmi_command(command)
         logger.info(f"{zone.title()} fan speed set to {speed_percent}%")
@@ -420,12 +437,14 @@ class IPMICommander:
         # Define RPM ranges for different fan groups
         FAN_RANGES = {
             # Group 1: Higher RPM range
-            "FAN1": {"min": 1400, "max": 1820},
-            "FAN5": {"min": 1400, "max": 1820},
+            "FAN1": {"min": 1000, "max": 2000},
+            "FAN5": {"min": 1000, "max": 2000},
             # Group 2: Lower RPM range
-            "FAN2": {"min": 1120, "max": 1400},
-            "FAN3": {"min": 1120, "max": 1400},
-            "FAN4": {"min": 1120, "max": 1400},
+            "FAN2": {"min": 1000, "max": 2000},
+            "FAN3": {"min": 1000, "max": 2000},
+            "FAN4": {"min": 1000, "max": 2000},
+            # CPU fan
+            "FANA": {"min": 2500, "max": 3800},
         }
         
         working_fans = 0
