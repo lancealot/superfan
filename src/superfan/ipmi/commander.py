@@ -113,6 +113,14 @@ class IPMICommander:
         if len(parts) < 3 or parts[0] != "raw":
             return  # Not a raw command, skip validation
             
+        # First validate hex format before trying to convert
+        for p in parts[1:3]:
+            # Remove 0x prefix if present
+            hex_val = p[2:] if p.startswith('0x') else p
+            # Check if remaining string is valid hex
+            if not all(c in '0123456789abcdefABCDEF' for c in hex_val):
+                raise IPMIError("Invalid command format: malformed hex value")
+            
         try:
             # Convert hex strings to integers
             netfn = int(parts[1], 16)

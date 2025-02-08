@@ -374,11 +374,25 @@ python -m pytest
 python -m pytest tests/test_curve.py
 ```
 
-Current test coverage:
+Current test coverage (as of 2025-02-08):
 - Fan curve implementations: 93% coverage
-- Linear, step, and hysteresis curves fully tested
-- Temperature-to-speed mapping validated
-- Safety limits and validation tested
+- CLI interface: 100% coverage
+  * Monitor mode functionality
+  * Fan speed learning
+  * Emergency state handling
+  * Temperature thresholds
+  * Fan speed mismatch detection
+  * Signal handling and cleanup
+- Control manager: 15% coverage (needs improvement)
+- IPMI commander: 27% coverage (needs improvement)
+- IPMI sensors: 28% coverage (needs improvement)
+
+Latest Test Improvements:
+- Complete CLI interface test coverage
+- Robust mock curses implementation
+- Consistent test patterns
+- Proper cleanup in all test cases
+- Signal handling verification
 
 3. Format code:
 ```bash

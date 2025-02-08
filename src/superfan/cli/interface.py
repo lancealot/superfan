@@ -127,8 +127,47 @@ class CLI:
         if not os.path.exists(config_path):
             default_config = Path(__file__).parent.parent.parent / "config" / "default.yaml"
             os.makedirs(os.path.dirname(config_path), exist_ok=True)
-            with open(default_config) as src, open(config_path, "w") as dst:
-                dst.write(src.read())
+            if default_config.exists():
+                with open(default_config) as src, open(config_path, "w") as dst:
+                    dst.write(src.read())
+            else:
+                # If default config doesn't exist, create a basic one
+                with open(config_path, "w") as f:
+                    yaml.safe_dump({
+                        "ipmi": {},
+                        "temperature": {"hysteresis": 3},
+                        "fans": {
+                            "polling_interval": 30,
+                            "monitor_interval": 5,
+                            "min_speed": 5,
+                            "max_speed": 100,
+                            "ramp_step": 5,
+                            "zones": {
+                                "chassis": {
+                                    "enabled": True,
+                                    "critical_max": 75,
+                                    "warning_max": 65,
+                                    "target": 55,
+                                    "sensors": ["System Temp", "Peripheral Temp", "NVMe_*"],
+                                    "curve": [[0, 5], [10, 30], [20, 50]]
+                                },
+                                "cpu": {
+                                    "enabled": True,
+                                    "critical_max": 85,
+                                    "warning_max": 75,
+                                    "target": 65,
+                                    "sensors": ["CPU1 Temp", "CPU2 Temp"],
+                                    "curve": [[0, 20], [10, 30], [20, 50]]
+                                }
+                            }
+                        },
+                        "safety": {
+                            "watchdog_timeout": 90,
+                            "min_temp_readings": 2,
+                            "min_working_fans": 2,
+                            "restore_on_exit": True
+                        }
+                    }, f)
             logger.info(f"Created default configuration at {config_path}")
             
         return config_path

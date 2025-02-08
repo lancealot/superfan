@@ -75,7 +75,7 @@ class FanSpeedLearner:
             logger.error(f"Stability check failed for {zone} zone: {e}")
             return False
 
-    def _learn_zone_speed(self, zone: str) -> int:
+    def _learn_zone_minimum_speed(self, zone: str, start_speed: int = 30) -> int:
         """Learn minimum stable speed for a specific fan zone
         
         Args:
@@ -84,8 +84,8 @@ class FanSpeedLearner:
         Returns:
             Minimum stable speed percentage
         """
-        # Start from a safe speed
-        test_speed = 30  # Start from 30% as a safe baseline
+        # Start from the provided speed
+        test_speed = start_speed
         last_stable = test_speed
         
         # Test decreasing speeds gradually
@@ -114,7 +114,7 @@ class FanSpeedLearner:
             
             # Learn speeds for each zone
             for zone in ["chassis", "cpu"]:
-                min_speeds[zone] = self._learn_zone_speed(zone)
+                min_speeds[zone] = self._learn_zone_minimum_speed(zone)
                 logger.info(f"Learned minimum speed for {zone} zone: {min_speeds[zone]}%")
             
             # Update configuration with the highest minimum speed
