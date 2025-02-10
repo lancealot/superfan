@@ -132,21 +132,43 @@ The test suite includes tests for:
 - IPMI communication
 - Control loop logic
 
-Current test coverage:
+Current Test Coverage (as of 2025-02-10):
 - Fan curve implementations: 93% coverage
 - CLI interface: 100% coverage
+  * Monitor mode functionality
+  * Fan speed learning
+  * Emergency state handling
+  * Temperature thresholds
+  * Fan speed mismatch detection
+  * Signal handling and cleanup
+  * Terminal resize handling
+  * Color-coded temperature display
 - Control manager: 15% coverage (needs improvement)
+  * Basic control flow tested
+  * Emergency state transitions needed
+  * Fan curve implementations needed
+  * Temperature management needed
 - IPMI commander: 27% coverage (needs improvement)
+  * Command formation tested
+  * Response parsing needed
+  * Error handling needed
+  * Mode transitions needed
 - IPMI sensors: 28% coverage (needs improvement)
+  * Basic sensor reading tested
+  * Temperature calculation needed
+  * State tracking needed
+  * Error handling needed
 
 Latest Test Improvements:
 - Complete CLI interface test coverage
-- Comprehensive monitor display testing
-- Fan speed learning mode validation
-- Emergency state handling verification
-- Temperature color threshold testing
+- Robust mock curses implementation
+- Consistent test patterns
+- Proper cleanup in all test cases
+- Signal handling verification
+- Terminal resize error handling
 - Fan speed mismatch detection
-- Signal handling and cleanup verification
+- Emergency state handling
+- Temperature color thresholds
 
 Verified functionality through testing:
 - IPMI sensor readings working correctly

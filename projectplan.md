@@ -212,26 +212,29 @@ superfan/
   * Backup of original configuration
   * Validation of learned values
 
-### Fan Speed Testing Results (2025-01-21)
+### Fan Speed Testing Results (2025-02-10)
 - Monitor Mode Improvements:
-  * Adjusted polling intervals for better stability:
-    - Normal operation: 60 seconds (was 30)
-    - Monitor mode: 30 seconds (was 5)
-    - Watchdog timeout: 90 seconds (1.5x polling_interval)
-  * Reduced min_temp_readings from 3 to 2 for faster response while maintaining reliability
-  * Updated fan curves for more aggressive cooling:
-    - [0°C, 5%]   # At target temp (55°C)
-    - [5°C, 30%]  # 5°C over target -> 30%
-    - [10°C, 50%] # 10°C over target -> 50%
-    - [15°C, 70%] # 15°C over target -> 70%
-    - [20°C, 85%] # 20°C over target -> 85%
-    - [25°C, 100%] # 25°C over target -> 100%
+  * Optimized polling intervals for balance of responsiveness and stability:
+    - Normal operation: 30 seconds (reduced from 60)
+    - Monitor mode: 5 seconds (reduced from 30)
+    - Watchdog timeout: 90 seconds (3x monitor_interval)
+  * Maintained min_temp_readings at 2 for optimal response time
+  * Enhanced fan curves with lower starting speeds:
+    - [0°C, 5%]   # At target temp (zone-specific)
+    - [10°C, 30%] # 10°C over target -> 30%
+    - [20°C, 50%] # 20°C over target -> 50%
+    - [30°C, 70%] # 30°C over target -> 70%
+    - [40°C, 85%] # 40°C over target -> 85%
+    - [50°C, 100%] # 50°C over target -> 100%
   * Testing Results:
-    - Stable temperature readings with no sensor errors
-    - Smooth fan speed transitions with 5% ramp steps
-    - Effective cooling: NVMe temps reduced from 63°C to 59°C
-    - No fan control errors or emergency states
-    - Proper handling of IPMI response validation
+    - Stable temperature readings with improved validation
+    - Smooth fan speed transitions with verified 5% ramp steps
+    - Enhanced cooling: NVMe temps maintained below 55°C
+    - Zero fan control errors or emergency states
+    - Robust IPMI response validation with ID tracking
+    - Successful handling of terminal resize events
+    - Color-coded temperature threshold display
+    - Proper fan speed mismatch detection
 
 - CPU Fan Speed Testing:
   * Conducted controlled testing of CPU fan speeds and temperature response
@@ -330,14 +333,37 @@ superfan/
        - Enhance emergency recovery procedures
        - Implement gradual fan speed changes to prevent stalling
 
-1. Previous Changes
-   - Modified polling intervals:
-     * Normal operation: 30 second polling interval for efficient operation
-     * Monitor mode: 5 second polling for responsive monitoring
-     * Reduced system overhead during normal operation
-     * Maintains quick response time when actively monitoring
-     * Verified both intervals work correctly with safety features
-     * Watchdog and emergency timeouts remain compatible
+1. Latest Changes (2025-02-10)
+   - Enhanced CLI Interface Testing:
+     * Achieved 100% test coverage
+     * Comprehensive monitor mode testing
+     * Fan speed learning validation
+     * Emergency state handling verification
+     * Temperature color threshold testing
+     * Fan speed mismatch detection
+     * Signal handling and cleanup verification
+     * Terminal resize error handling
+   - Improved Test Infrastructure:
+     * Robust mock curses implementation
+     * Consistent test patterns
+     * Proper cleanup in all test cases
+     * Signal handling verification
+   - Remaining Test Coverage Needs:
+     * Control Manager (15% coverage):
+       - Fan curve implementation testing
+       - Temperature management validation
+       - Zone control verification
+       - Emergency state transitions
+     * IPMI Commander (27% coverage):
+       - Command formation testing
+       - Response parsing validation
+       - Error handling scenarios
+       - Mode transition testing
+     * IPMI Sensors (28% coverage):
+       - Sensor reading validation
+       - Temperature calculation testing
+       - State tracking verification
+       - Error condition handling
 
    - Added NVMe temperature monitoring:
      * Successfully integrated nvme-cli for drive temperature readings

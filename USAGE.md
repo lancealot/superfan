@@ -191,46 +191,86 @@ For optimal results:
 - Ensure ambient temperature is at typical operating levels
 - Allow the learning process to complete without interruption
 
-## Critical Safety Guidelines (Latest Update)
+## Critical Safety Guidelines (Latest Update 2025-02-10)
 
 1. Fan Speed Control
-- Minimum fan speed set to 5% (validated through IPMI)
-- Fan curves start at minimum speed for optimal efficiency
-- System gradually ramps speeds up/down for stability
-- Detailed debug logging available for monitoring
-- Allow 5 seconds between speed changes for stability
+- Minimum fan speed validated at 5% through IPMI command verification
+- Fan curves optimized to start at minimum speed for efficiency
+- Gradual speed changes with 5% ramp step for stability
+- Detailed debug logging available for monitoring fan behavior
+- Allow 5 seconds between speed changes for proper RPM stabilization
+- Fan speed changes now verified using duty cycle reading commands
+- Proper handling of different RPM ranges for fan groups:
+  * Group 1 (FAN1, FAN5): Higher RPM range
+  * Group 2 (FAN2-4): Lower RPM range
+  * FANA: CPU-specific RPM range
 
 2. Temperature Monitoring
 - Monitor NVMe and M.2 SSD temperatures closely
 - Some drives may require additional cooling consideration
 - M2_SSD temperatures above 60°C indicate potential cooling issues
 - Use monitor mode (5-second polling) for real-time temperature tracking
+- Improved sensor reading validation:
+  * Proper filtering of "no reading" and "ns" sensor states
+  * Validation of sensor response IDs for data consistency
+  * Support for both standard and Kelvin temperature formats
+  * Safe handling of non-responsive fans and sensors
 
 3. Emergency Procedures
 - System automatically restores BMC control if:
   * Fans stop completely
   * Emergency fan speed changes fail
   * Critical temperatures are detected
-- Manual intervention may be needed if cooling issues persist
+  * Sensor reading validation fails
+  * Response ID validation fails
+- Emergency recovery procedures:
+  1. Immediate restoration of BMC control
+  2. Setting all fans to 100% speed
+  3. Verification of fan speed changes
+  4. Temperature trend monitoring
+  5. Logging of emergency state details
+- Manual intervention required if:
+  * Multiple recovery attempts fail
+  * Critical temperatures persist
+  * Fan speed verification fails
+  * Sensor readings remain invalid
 
-## Additional Safety Features
+## Additional Safety Features (Latest Update 2025-02-10)
 
 Superfan includes several built-in safety features:
 
 1. Temperature Limits
-- If temperature exceeds `critical_max`, fans are set to 100%
-- If temperature exceeds `warning_max`, fan speed is increased
-- Minimum fan speed prevents complete fan stoppage
+- Zone-specific temperature thresholds:
+  * Chassis zone:
+    - Critical max: 75°C (triggers emergency mode)
+    - Warning max: 65°C (increases fan speed)
+    - Target: 55°C (optimal operating temperature)
+  * CPU zone:
+    - Critical max: 85°C (triggers emergency mode)
+    - Warning max: 75°C (increases fan speed)
+    - Target: 65°C (optimal operating temperature)
+- Temperature trend analysis for predictive action
+- Configurable hysteresis to prevent oscillation
 
 2. Fail-safes
-- Watchdog timer ensures regular temperature readings
-- Automatic fallback to BMC control on exit
-- Emergency mode on sensor reading failures
+- Watchdog timer (90 seconds) ensures control loop reliability
+- Automatic fallback to BMC control on:
+  * Program exit
+  * Control loop failure
+  * Communication errors
+  * Invalid sensor readings
+- Emergency mode triggers on:
+  * Critical temperatures
+  * Sensor reading failures
+  * Fan speed verification failures
+  * Response validation errors
 
-3. Hysteresis
+3. Hysteresis and Stability
 - Prevents rapid fan speed oscillation
-- Configurable temperature change threshold
-- Minimum time between speed changes
+- Configurable temperature change threshold (default: 3°C)
+- Minimum time between speed changes (5 seconds)
+- Gradual speed ramping with 5% steps
+- Fan speed verification after changes
 
 ## Monitoring Display
 
