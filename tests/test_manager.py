@@ -7,7 +7,7 @@ This module contains tests for the fan control manager functionality.
 import os
 import time
 import pytest
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock, mock_open, call
 import yaml
 from superfan.control.manager import ControlManager
 from superfan.ipmi.commander import IPMICommander
@@ -146,122 +146,231 @@ def test_get_zone_temperature(manager, mock_commander):
     cpu_temp = manager._get_zone_temperature("cpu")
     assert cpu_temp == 5.0  # 70°C - 65°C = 5°C above target
 
-def test_get_zone_temperature_no_reading(manager, mock_commander):
-    """Test zone temperature with no valid readings"""
-    # Mock sensor readings with no reading state
+def test_get_zone_temperature_pattern_matching(manager, mock_commander):
+    """Test pattern-based sensor matching"""
+    # Mock sensor readings with various patterns
     mock_commander.get_sensor_readings.return_value = [
-        {"name": "System Temp", "value": None, "state": "ns"},
-        {"name": "CPU1 Temp", "value": None, "state": "ns"}
+        {"name": "CPU1 Temp", "value": 70.0, "state": "ok"},
+        {"name": "CPU2 Temp", "value": 75.0, "state": "ok"},
+        {"name": "System Temp", "value": 60.0, "state": "ok"},
+        {"name": "NVMe_nvme0n1", "value": 65.0, "state": "ok"},
+        {"name": "Other Sensor", "value": 80.0, "state": "ok"}
     ]
     
-    # Update readings
     manager.sensor_manager.update_readings()
     
-    # Test both zones
-    assert manager._get_zone_temperature("chassis") is None
-    assert manager._get_zone_temperature("cpu") is None
+    # Test CPU zone (should match both CPU1 and CPU2)
+    cpu_temp = manager._get_zone_temperature("cpu")
+    assert cpu_temp == 10.0  # 75°C - 65°C = 10°C (uses highest temp)
+    
+    # Test chassis zone (should match System Temp and NVMe)
+    chassis_temp = manager._get_zone_temperature("chassis")
+    assert chassis_temp == 10.0  # 65°C - 55°C = 10°C (uses highest temp)
 
-# Safety Check Tests
-
-def test_verify_fan_speeds(manager, mock_commander):
-    """Test fan speed verification"""
-    # Mock normal fan readings
+def test_get_zone_temperature_nvme_integration(manager, mock_commander):
+    """Test NVMe temperature integration"""
+    # Mock IPMI sensor readings
     mock_commander.get_sensor_readings.return_value = [
-        {"name": "FAN1", "value": 1500.0, "state": "ok"},
-        {"name": "FAN2", "value": 1200.0, "state": "ok"},
-        {"name": "FANA", "value": 3000.0, "state": "ok"}
+        {"name": "System Temp", "value": 60.0, "state": "ok"}
     ]
     
-    assert manager._verify_fan_speeds() is True
+    # Mock NVMe temperature readings
+    with patch('subprocess.run') as mock_run:
+        def mock_nvme_command(cmd, *args, **kwargs):
+            if cmd[1] == "list":
+                return MagicMock(
+                    stdout="/dev/nvme0n1\n/dev/nvme1n1",
+                    stderr="",
+                    returncode=0
+                )
+            elif cmd[1] == "smart-log":
+                return MagicMock(
+                    stdout="temperature : 70 C",
+                    stderr="",
+                    returncode=0
+                )
+        mock_run.side_effect = mock_nvme_command
+        
+        manager.sensor_manager.update_readings()
+        
+        # Test chassis zone (should include NVMe temperature)
+        chassis_temp = manager._get_zone_temperature("chassis")
+        assert chassis_temp == 15.0  # 70°C - 55°C = 15°C (NVMe is highest)
 
-def test_verify_fan_speeds_failure(manager, mock_commander):
-    """Test fan speed verification failure"""
-    # Mock fan readings with stopped fan
-    mock_commander.get_sensor_readings.return_value = [
-        {"name": "FAN1", "value": 0.0, "state": "ok"},  # Stopped fan
-        {"name": "FAN2", "value": 1200.0, "state": "ok"}
+def test_zone_temperature_thresholds(manager, mock_commander):
+    """Test zone-specific temperature thresholds"""
+    # Test each zone's thresholds
+    test_cases = [
+        # Zone, Temperature, Expected Result
+        ("chassis", 74.0, True),   # Below critical (75°C)
+        ("chassis", 76.0, False),  # Above critical
+        ("cpu", 84.0, True),       # Below critical (85°C)
+        ("cpu", 86.0, False)       # Above critical
     ]
     
-    assert manager._verify_fan_speeds() is False
+    for zone, temp, expected_safe in test_cases:
+        mock_commander.get_sensor_readings.return_value = [
+            {f"name": f"{zone.upper()} Temp", "value": temp, "state": "ok"}
+        ]
+        
+        manager.sensor_manager.update_readings()
+        assert manager._check_safety() == expected_safe
 
-def test_check_safety_normal(manager, mock_commander):
-    """Test safety check under normal conditions"""
-    # Mock normal sensor readings
+# Fan Speed Control Tests
+
+def test_gradual_speed_ramping(manager, mock_commander):
+    """Test gradual fan speed changes"""
+    # Mock initial temperature reading
     mock_commander.get_sensor_readings.return_value = [
-        {"name": "System Temp", "value": 60.0, "state": "ok"},
-        {"name": "CPU1 Temp", "value": 70.0, "state": "ok"},
-        {"name": "FAN1", "value": 1500.0, "state": "ok"},
-        {"name": "FAN2", "value": 1200.0, "state": "ok"}
+        {"name": "CPU1 Temp", "value": 85.0, "state": "ok"}  # 20°C over target
     ]
     
-    assert manager._check_safety() is True
-    assert manager._in_emergency is False
-
-def test_check_safety_critical(manager, mock_commander):
-    """Test safety check with critical conditions"""
-    # Mock critical temperature readings
-    mock_commander.get_sensor_readings.return_value = [
-        {"name": "System Temp", "value": 80.0, "state": "cr"},  # Critical state
-        {"name": "FAN1", "value": 1500.0, "state": "ok"}
-    ]
-    
-    assert manager._check_safety() is False
-
-def test_emergency_action(manager, mock_commander):
-    """Test emergency action execution"""
-    manager._emergency_action()
-    
-    # Verify fans were set to 100%
-    mock_commander.set_fan_speed.assert_any_call(100, zone="chassis")
-    mock_commander.set_fan_speed.assert_any_call(100, zone="cpu")
-    assert manager._in_emergency is True
-
-# Control Loop Tests
-
-def test_control_loop_normal(manager, mock_commander):
-    """Test control loop under normal conditions"""
-    # Mock normal temperature readings
-    mock_commander.get_sensor_readings.return_value = [
-        {"name": "System Temp", "value": 60.0, "state": "ok"},
-        {"name": "CPU1 Temp", "value": 70.0, "state": "ok"},
-        {"name": "FAN1", "value": 1500.0, "state": "ok"},
-        {"name": "FAN2", "value": 1200.0, "state": "ok"}
-    ]
+    manager.sensor_manager.update_readings()
+    manager.current_speeds["cpu"] = 30  # Current speed
     
     # Start control loop
     manager.start()
     time.sleep(0.1)  # Allow one iteration
     manager.stop()
     
-    # Verify fan speeds were set based on temperatures
-    mock_commander.set_fan_speed.assert_any_call(30, zone="chassis")  # 5°C over target -> 30%
-    mock_commander.set_fan_speed.assert_any_call(30, zone="cpu")  # 5°C over target -> 30%
-
-def test_control_loop_emergency(manager, mock_commander):
-    """Test control loop emergency handling"""
-    # First return normal readings, then critical
-    readings = [
-        # Normal readings
-        [
-            {"name": "System Temp", "value": 60.0, "state": "ok"},
-            {"name": "FAN1", "value": 1500.0, "state": "ok"}
-        ],
-        # Critical readings
-        [
-            {"name": "System Temp", "value": 80.0, "state": "cr"},
-            {"name": "FAN1", "value": 1500.0, "state": "ok"}
-        ]
+    # Verify speed was increased by ramp_step (5%)
+    expected_calls = [
+        call(35, zone="cpu"),  # 30% + 5% step
     ]
-    mock_commander.get_sensor_readings.side_effect = readings
+    mock_commander.set_fan_speed.assert_has_calls(expected_calls)
+
+def test_speed_change_verification(manager, mock_commander):
+    """Test fan speed change verification"""
+    # Mock fan readings for verification
+    def mock_readings():
+        return [
+            {"name": "FAN1", "value": 1500.0, "state": "ok"},
+            {"name": "FAN2", "value": 1200.0, "state": "ok"}
+        ]
     
-    # Start control loop
+    mock_commander.get_sensor_readings.side_effect = [
+        # First call: temperature reading
+        [{"name": "CPU1 Temp", "value": 85.0, "state": "ok"}],
+        # Second call: fan speed verification
+        mock_readings(),
+        # Third call: temperature reading
+        [{"name": "CPU1 Temp", "value": 85.0, "state": "ok"}],
+        # Fourth call: fan speed verification (failed)
+        [{"name": "FAN1", "value": 0.0, "state": "ok"}]  # Fan stopped
+    ]
+    
     manager.start()
     time.sleep(0.2)  # Allow two iterations
     manager.stop()
     
-    # Verify emergency action was taken
+    # Verify emergency action was taken after fan verification failed
     mock_commander.set_fan_speed.assert_any_call(100, zone="chassis")
     mock_commander.set_fan_speed.assert_any_call(100, zone="cpu")
+
+def test_current_speed_tracking(manager, mock_commander):
+    """Test current fan speed tracking"""
+    # Set initial speed
+    manager.current_speeds["chassis"] = 50
+    
+    # Mock temperature that would result in same speed
+    mock_commander.get_sensor_readings.return_value = [
+        {"name": "System Temp", "value": 65.0, "state": "ok"}  # Results in 50% speed
+    ]
+    
+    manager.sensor_manager.update_readings()
+    manager.start()
+    time.sleep(0.1)  # Allow one iteration
+    manager.stop()
+    
+    # Verify no speed change command was sent (speed already at target)
+    mock_commander.set_fan_speed.assert_not_called()
+
+def test_default_speed_handling(manager, mock_commander):
+    """Test default speed handling when no temperature reading"""
+    # Mock no valid temperature readings
+    mock_commander.get_sensor_readings.return_value = [
+        {"name": "System Temp", "value": None, "state": "ns"}
+    ]
+    
+    manager.start()
+    time.sleep(0.1)  # Allow one iteration
+    manager.stop()
+    
+    # Verify default speed was set
+    mock_commander.set_fan_speed.assert_any_call(30, zone="chassis")  # Default 30%
+    mock_commander.set_fan_speed.assert_any_call(30, zone="cpu")      # Default 30%
+
+# Learning Mode Tests
+
+def test_learning_mode_integration(manager, mock_commander):
+    """Test fan speed learning integration"""
+    # Mock successful learning
+    with patch('superfan.control.manager.FanSpeedLearner') as mock_learner_class:
+        mock_learner = MagicMock()
+        mock_learner.learn_min_speeds.return_value = {
+            "chassis": 10,
+            "cpu": 15
+        }
+        mock_learner_class.return_value = mock_learner
+        
+        # Create manager in learning mode
+        manager = ControlManager(mock_config_file, learning_mode=True)
+        
+        # Start control (triggers learning)
+        manager.start()
+        
+        # Verify learning was performed
+        mock_learner.learn_min_speeds.assert_called_once()
+        
+        # Verify fan curves were updated with learned speeds
+        assert manager.fan_curves["chassis"].get_speed(0) == 10
+        assert manager.fan_curves["cpu"].get_speed(0) == 15
+
+def test_learning_mode_config_update(manager, mock_commander):
+    """Test configuration update after learning"""
+    # Mock successful learning
+    with patch('superfan.control.manager.FanSpeedLearner') as mock_learner_class:
+        mock_learner = MagicMock()
+        mock_learner.learn_min_speeds.return_value = {
+            "chassis": 10,
+            "cpu": 15
+        }
+        mock_learner_class.return_value = mock_learner
+        
+        # Create manager in learning mode
+        manager = ControlManager(mock_config_file, learning_mode=True)
+        
+        # Mock config file operations
+        mock_config = TEST_CONFIG.copy()
+        mock_config["fans"]["min_speed"] = 10  # Updated min speed
+        
+        with patch('builtins.open', mock_open()) as mock_file:
+            manager.start()
+            
+            # Verify config was updated
+            mock_file().write.assert_called()
+            # Note: Can't easily verify exact YAML content due to formatting
+
+def test_minimum_speed_validation(manager, mock_commander):
+    """Test minimum speed validation after learning"""
+    # Mock successful learning with very low speed
+    with patch('superfan.control.manager.FanSpeedLearner') as mock_learner_class:
+        mock_learner = MagicMock()
+        mock_learner.learn_min_speeds.return_value = {
+            "chassis": 2,  # Too low
+            "cpu": 15
+        }
+        mock_learner_class.return_value = mock_learner
+        
+        # Create manager in learning mode
+        manager = ControlManager(mock_config_file, learning_mode=True)
+        
+        # Start control (triggers learning)
+        manager.start()
+        
+        # Verify minimum speed is enforced
+        assert manager.fan_curves["chassis"].get_speed(0) == 5  # Config minimum
+        assert manager.fan_curves["cpu"].get_speed(0) == 15    # Learned value
 
 # Status Reporting Tests
 
@@ -273,6 +382,12 @@ def test_get_status(manager, mock_commander):
         {"name": "CPU1 Temp", "value": 70.0, "state": "ok"}
     ]
     
+    # Set some current speeds
+    manager.current_speeds = {
+        "chassis": 40,
+        "cpu": 50
+    }
+    
     # Update readings
     manager.sensor_manager.update_readings()
     
@@ -282,6 +397,10 @@ def test_get_status(manager, mock_commander):
     assert status["running"] is False
     assert status["emergency"] is False
     assert "System Temp" in status["temperatures"]
+    assert status["temperatures"]["System Temp"] == 60.0
     assert "CPU1 Temp" in status["temperatures"]
-    assert "chassis" in status["fan_speeds"]
-    assert "cpu" in status["fan_speeds"]
+    assert status["temperatures"]["CPU1 Temp"] == 70.0
+    assert status["fan_speeds"]["chassis"]["current"] == 40
+    assert status["fan_speeds"]["cpu"]["current"] == 50
+    assert status["fan_speeds"]["chassis"]["target"] is not None
+    assert status["fan_speeds"]["cpu"]["target"] is not None

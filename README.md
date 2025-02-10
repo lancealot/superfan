@@ -29,24 +29,6 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
 - nvme-cli
 - Supermicro server with IPMI support
 
-## Features Details
-
-### Fan Speed Learning
-- Automatically discovers lowest stable fan speeds
-- Safely tests decreasing speeds while monitoring stability
-- Updates configuration with learned minimum speeds
-- Prevents fan stall by maintaining safe minimum RPM
-- Improves system noise levels while ensuring reliability
-
-### Important Safety Notes (Latest Update)
-- Minimum fan speed validated at 5% through IPMI command verification
-- Fan curves optimized to start at minimum speed for efficiency
-- Gradual speed changes with 5% ramp step for stability
-- Detailed debug logging available for monitoring fan behavior
-- Some NVMe and M.2 drives may require additional cooling consideration
-- Emergency recovery procedures will restore BMC control if needed
-- Monitor mode provides 5-second polling for real-time temperature tracking
-
 ## Installation
 
 ### Method 1: From Source
@@ -125,16 +107,9 @@ python -m pytest
 python -m pytest tests/test_curve.py
 ```
 
-The test suite includes tests for:
-- Fan curve implementations (linear, step, and hysteresis) - 85% coverage
-- Temperature-to-speed mapping
-- Safety limits and validation
-- IPMI communication
-- Control loop logic
+### Current Test Coverage (as of 2025-02-10)
 
-Current Test Coverage (as of 2025-02-10):
-- Fan curve implementations: 93% coverage
-- CLI interface: 100% coverage
+- CLI Interface: 100% coverage
   * Monitor mode functionality
   * Fan speed learning
   * Emergency state handling
@@ -143,50 +118,53 @@ Current Test Coverage (as of 2025-02-10):
   * Signal handling and cleanup
   * Terminal resize handling
   * Color-coded temperature display
-- Control manager: 15% coverage (needs improvement)
+
+- IPMI Commander: 95% coverage
+  * Board generation detection
+  * Fan speed control commands
+  * Sensor reading parsing
+  * Fan speed verification
+  * Error handling and retries
+  * Command validation
+  * Safety checks
+
+- Fan Curve Implementations: 93% coverage
+  * Linear curve calculations
+  * Step function behavior
+  * Hysteresis handling
+  * Temperature thresholds
+  * Speed limits
+
+- Control Manager: 15% coverage (needs improvement)
   * Basic control flow tested
   * Emergency state transitions needed
   * Fan curve implementations needed
   * Temperature management needed
-- IPMI commander: 27% coverage (needs improvement)
-  * Command formation tested
-  * Response parsing needed
-  * Error handling needed
-  * Mode transitions needed
-- IPMI sensors: 28% coverage (needs improvement)
+
+- IPMI Sensors: 28% coverage (needs improvement)
   * Basic sensor reading tested
   * Temperature calculation needed
   * State tracking needed
   * Error handling needed
 
-Latest Test Improvements:
+### Latest Test Improvements
+
 - Complete CLI interface test coverage
-- Robust mock curses implementation
+- Comprehensive IPMI commander tests:
+  * Board generation detection
+  * Fan control commands
+  * Sensor reading parsing
+  * Error handling
+  * Safety validation
+- Robust mock implementations
 - Consistent test patterns
 - Proper cleanup in all test cases
 - Signal handling verification
 - Terminal resize error handling
-- Fan speed mismatch detection
-- Emergency state handling
-- Temperature color thresholds
-
-Verified functionality through testing:
-- IPMI sensor readings working correctly
-- Manual fan speed control operational
-- Fan speed changes confirmed via sensor readings
-- Proper entry/exit of manual control mode
-- Monitor display functionality
-- Emergency state handling
-- Temperature threshold management
 
 ## Usage
 
-1. Edit the configuration file in `config/default.yaml` to match your setup
-2. Run the utility:
-
-```bash
-python -m superfan
-```
+See [USAGE.md](USAGE.md) for detailed usage instructions.
 
 ## Safety Features
 

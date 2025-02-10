@@ -31,10 +31,7 @@ env/
 .vscode/
 *.swp
 *.swo
-
-# OS
-.DS_Store
-Thumbs.db
+*~
 
 # Testing
 .coverage
@@ -44,3 +41,16 @@ htmlcov/
 
 # Logs
 *.log
+logs/
+
+# Build
+*.rpm
+*.deb
+RPMS/
+SRPMS/
+BUILD/
+BUILDROOT/
+
+# System
+.DS_Store
+Thumbs.db

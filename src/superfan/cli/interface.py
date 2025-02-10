@@ -335,24 +335,29 @@ class CLI:
                 print(f"Fan speed set to {args.manual}%")
                 
             elif args.monitor:
-                # Start control loop
-                self.manager.start()
-                
-                # Setup signal handler
-                def signal_handler(signum, frame):
-                    self._running = False
-                signal.signal(signal.SIGINT, signal_handler)
-                
-                # Initialize curses
+                # Initialize curses first
                 stdscr = curses.initscr()
                 curses.noecho()
                 curses.cbreak()
-                stdscr.keypad(True)
                 
                 try:
+                    # Setup signal handler
+                    def signal_handler(signum, frame):
+                        self._running = False
+                    signal.signal(signal.SIGINT, signal_handler)
+                    
+                    # Enable keypad mode
+                    stdscr.keypad(True)
+                    
+                    # Start control loop
+                    self.manager.start()
+                    
                     # Run monitor display
                     self._running = True
                     self._monitor_display(stdscr)
+                    
+                    # Stop control loop
+                    self.manager.stop()
                 finally:
                     # Clean up curses
                     curses.nocbreak()
@@ -360,10 +365,12 @@ class CLI:
                     curses.echo()
                     curses.endwin()
                 
-                # Stop control loop
-                self.manager.stop()
-                
             else:
+                # Setup signal handler
+                def signal_handler(signum, frame):
+                    pass
+                signal.signal(signal.SIGINT, signal_handler)
+                
                 # Start control loop
                 self.manager.start()
                 
