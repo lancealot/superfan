@@ -18,7 +18,6 @@ from .curve import FanCurve, LinearCurve, HysteresisCurve
 from .learner import FanSpeedLearner
 
 logger = logging.getLogger(__name__)
-
 class ControlManager:
     """Manages fan control loop and safety features"""
     
@@ -41,8 +40,8 @@ class ControlManager:
         with open(config_path) as f:
             self.config = yaml.safe_load(f)
             
-        # Initialize IPMI (use defaults for local access)
-        self.commander = IPMICommander()
+        # Initialize IPMI with config path
+        self.commander = IPMICommander(config_path)
         
         # Initialize sensor manager with patterns
         sensor_patterns = []
@@ -50,9 +49,8 @@ class ControlManager:
             if zone_config["enabled"]:
                 # Convert sensor names to patterns
                 for sensor in zone_config["sensors"]:
-                    # Replace exact names with patterns
-                    # e.g. "CPU1 Temp" becomes "*CPU* Temp*"
-                    pattern = f"*{sensor.replace('1', '*').replace('2', '*')}*"
+                    # Use pattern directly from config
+                    pattern = sensor
                     sensor_patterns.append(pattern)
         
         self.sensor_manager = CombinedTemperatureReader(
@@ -125,7 +123,7 @@ class ControlManager:
             logger.debug(f"Checking pattern '{pattern}' against sensors: {list(sensor_names)}")
             
             for sensor_name in sensor_names:
-                if pattern_re.search(sensor_name):  # Use search instead of match for more flexible matching
+                if pattern_re.match(sensor_name):  # Use match to ensure pattern matches from start
                     logger.debug(f"Pattern '{pattern}' matched sensor '{sensor_name}'")
                     stats = self.sensor_manager.get_sensor_stats(sensor_name)
                     if stats:
@@ -242,7 +240,7 @@ class ControlManager:
                     
                     # Check IPMI temperatures
                     for reading in temp_readings:
-                        if pattern_re.search(reading["name"]) and reading["value"] is not None:
+                        if pattern_re.match(reading["name"]) and reading["value"] is not None:
                             zone_temps.append(reading["value"])
                     
                     # Check NVMe temperatures if pattern matches
@@ -314,36 +312,27 @@ class ControlManager:
                 
                 # Update each zone
                 for zone_name, curve in self.fan_curves.items():
-                    # Get zone temperature
+                    # Get target temperature from config
+                    target_temp = self.config["fans"]["zones"][zone_name]["target"]
+                    
+                    # Calculate temperature delta using pattern matching for all zones
                     temp_delta = self._get_zone_temperature(zone_name)
                     if temp_delta is None:
                         logger.warning(f"No valid temperature for zone {zone_name}")
                         continue
-                        
-                    # Calculate fan speed for specific zone
-                    speed = curve.get_speed(temp_delta)
                     
-                    # Only update if speed has changed
+                    # Calculate target speed from curve
+                    target_speed = curve.get_speed(temp_delta)
+                    
+                    # Only update if speed has changed significantly
                     current_speed = self.current_speeds.get(zone_name, 0)
-                    if current_speed != speed:
-                        # Get ramp step from config
-                        ramp_step = self.config["fans"]["ramp_step"]
+                    if abs(target_speed - current_speed) >= 5:  # 5% threshold for changes
+                        # Set new speed using H12's discrete steps
+                        self.commander.set_fan_speed(target_speed, zone=zone_name)
+                        logger.info(f"Fan speed set to {target_speed}% for zone {zone_name} (target: {target_speed}%)")
+                        self.current_speeds[zone_name] = target_speed
                         
-                        # Calculate intermediate speed
-                        if abs(speed - current_speed) > ramp_step:
-                            if speed > current_speed:
-                                new_speed = current_speed + ramp_step
-                            else:
-                                new_speed = current_speed - ramp_step
-                        else:
-                            new_speed = speed
-                            
-                        # Set new speed and verify
-                        self.commander.set_fan_speed(new_speed, zone=zone_name)
-                        logger.info(f"Fan speed set to {new_speed}% for zone {zone_name} (target: {speed}%)")
-                        self.current_speeds[zone_name] = new_speed
-                    
-                    logger.debug(f"Zone {zone_name}: {temp_delta:.1f}°C -> {speed}% (current)")
+                        logger.debug(f"Zone {zone_name}: {temp_delta:.1f}°C -> {target_speed}% (current)")
                     
             except Exception as e:
                 logger.error(f"Control loop error: {e}")
@@ -371,15 +360,20 @@ class ControlManager:
             # Set manual mode
             self.commander.set_manual_mode()
             
-            # If in learning mode, learn speeds first
+            # If in learning mode, learn board configuration
             if self.learning_mode:
-                logger.info("Starting fan speed learning")
-                min_speeds = self.learn_min_speeds()
-                logger.info(f"Learned minimum speeds: {min_speeds}")
-                # Reload configuration with new speeds
+                logger.info("Starting board configuration learning")
+                learner = FanSpeedLearner(self.commander, self.config_path)
+                board_config = learner.learn_board_config()
+                logger.info("Board configuration learned and saved")
+                
+                # Reload configuration with learned parameters
                 with open(self.config_path) as f:
                     self.config = yaml.safe_load(f)
                 self._init_fan_curves()
+                
+                # Return early - don't start control loop in learning mode
+                return
             
             # Set initial fan speeds based on current temperatures
             for zone_name, curve in self.fan_curves.items():

@@ -94,6 +94,40 @@ The system monitors temperatures from two sources:
 
 NVMe temperatures are automatically detected and monitored, with sensors named in the format `NVMe_nvme[X]n1` where X is the drive number.
 
+### Sensor Pattern Configuration
+
+The system supports flexible wildcard patterns for sensor names to handle variations across different systems:
+
+1. Basic Patterns:
+- `*` matches any sequence of characters
+- Use quotes when pattern contains wildcards: `"CPU* Temp"`
+- Examples:
+  * `"CPU* Temp"` - Matches "CPU Temp", "CPU1 Temp", etc.
+  * `"*VRM* Temp"` - Matches "CPU_VRM Temp", "SOC_VRM Temp", etc.
+  * `"P1_DIMM*"` - Matches "P1_DIMMA~D", "P1_DIMME~H", etc.
+
+2. Pattern Placement:
+- Start pattern: `"CPU*"` - Matches names starting with "CPU"
+- Middle pattern: `"*VRM*"` - Matches names containing "VRM"
+- End pattern: `"*Temp"` - Matches names ending with "Temp"
+
+3. Example Patterns:
+```yaml
+sensors:
+  # CPU zone patterns
+  - "CPU* Temp"         # CPU temperature sensors
+  - "*CPU*VRM* Temp"    # CPU VRM temperature sensors
+  - "*SOC*VRM* Temp"    # SOC VRM temperature sensors
+  - "*VRM* Temp"        # Other VRM temperature sensors
+
+  # Chassis zone patterns
+  - "System Temp"       # System temperature
+  - "Peripheral Temp"   # Peripheral temperature
+  - "P1_DIMM*"         # Memory temperature sensors
+  - "NVMe_*"           # NVMe drive temperatures
+  - "M2_SSD*"          # M.2 SSD temperatures
+```
+
 ### Example Configuration
 
 ```yaml
@@ -156,6 +190,11 @@ superfan
 ```bash
 superfan --monitor
 ```
+
+Note: Monitor mode automatically manages the superfan service:
+- Stops the service when starting monitor mode
+- Restarts the service when exiting monitor mode (Ctrl+C)
+- This prevents conflicts between monitor mode and service fan control
 
 3. Set a manual fan speed:
 ```bash

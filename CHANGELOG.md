@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Improved sensor pattern handling:
+  * Added support for flexible wildcard patterns in sensor names
+  * Enhanced pattern matching to handle variations in sensor naming
+  * Added proper YAML quoting for sensor patterns with wildcards
+  * Updated default patterns for better cross-system compatibility
+
+### Changed
+- Monitor mode improvements:
+  * Automatically stops superfan.service when starting monitor mode
+  * Automatically restarts service when exiting monitor mode
+  * Prevents conflicts between monitor mode and service
+  * Added proper cleanup on monitor mode exit
+
 ### Testing
 - Significantly improved test coverage for IPMI commander module (41% → 49%):
   * Added board generation detection tests:

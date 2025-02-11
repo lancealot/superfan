@@ -31,57 +31,59 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
 
 ## Installation
 
-### Method 1: From Source
+### First Time Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/superfan.git
-cd superfan
-
-# Install package in development mode
-pip install -e .
+sudo ./install.sh
 ```
 
-### Method 2: RPM Installation (Red Hat-based systems only)
+This will:
+1. Install required system packages (ipmitool, nvme-cli, python3-pip)
+2. Load and configure IPMI kernel modules
+3. Create configuration directory (/etc/superfan)
+4. Install default configuration
+5. Install Python package in development mode
+6. Set appropriate file permissions
+7. Install and start systemd service
 
-#### Building the RPM
+### Updates and Reinstallation
 
-Prerequisites:
-- rpm-build
-- rpmdevtools
+When running install.sh on an existing installation:
+1. Existing config file will be backed up to `/etc/superfan/config.yaml.bak`
+2. New default config will be installed as `/etc/superfan/config.yaml.new`
+3. You must manually merge any config changes:
+   ```bash
+   # Compare new config with existing
+   diff /etc/superfan/config.yaml /etc/superfan/config.yaml.new
+   
+   # Merge changes as needed
+   sudo nano /etc/superfan/config.yaml
+   
+   # Restart service to apply changes
+   sudo systemctl restart superfan
+   ```
 
-Install build dependencies:
+### Configuration Files
+
+- Main config: `/etc/superfan/config.yaml`
+- Backup config: `/etc/superfan/config.yaml.bak` (created during updates)
+- New config: `/etc/superfan/config.yaml.new` (created during updates)
+
+### Service Management
+
 ```bash
-sudo dnf install rpm-build rpmdevtools
+# View service status
+systemctl status superfan
+
+# View logs
+journalctl -u superfan
+
+# Edit config
+sudo nano /etc/superfan/config.yaml
+
+# Restart service
+sudo systemctl restart superfan
 ```
-
-Build the RPM:
-```bash
-# Run the build script
-./buildrpm.sh
-```
-
-The built RPM files will be available in:
-- Binary RPM: ~/rpmbuild/RPMS/$(uname -m)/
-- Source RPM: ~/rpmbuild/SRPMS/
-
-#### Installing the RPM
-
-```bash
-# Install the RPM (replace x86_64 with your architecture if different)
-sudo rpm -i ~/rpmbuild/RPMS/x86_64/superfan-0.1.0-1.*.rpm
-
-# Or using dnf
-sudo dnf install ~/rpmbuild/RPMS/x86_64/superfan-0.1.0-1.*.rpm
-```
-
-The RPM installation will:
-- Install all required dependencies
-- Set up the systemd service
-- Create necessary configuration files
-- Load required IPMI kernel modules
-
-After installation, the service will be automatically started and enabled at boot.
 
 ## Development
 

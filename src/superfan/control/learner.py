@@ -7,7 +7,7 @@ for different fan zones.
 
 import logging
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Any
 import yaml
 
 from ..ipmi import IPMICommander, IPMIError
@@ -31,102 +31,224 @@ class FanSpeedLearner:
         with open(config_path) as f:
             self.config = yaml.safe_load(f)
 
-    def _is_speed_stable(self, speed: int, zone: str, check_duration: int = 10) -> bool:
-        """Check if fan speed is stable
+    def _get_fan_readings(self, zone: str) -> List[Dict[str, float]]:
+        """Get fan readings for a specific zone
         
         Args:
-            speed: Speed percentage to check
             zone: Fan zone ("chassis" or "cpu")
-            check_duration: Duration to monitor stability in seconds
             
         Returns:
-            True if speed is stable
+            List of fan readings with RPM values
+        """
+        readings = self.commander.get_sensor_readings()
+        
+        # Filter fans by zone
+        if zone == "cpu":
+            return [r for r in readings if r["name"].startswith("FANA") and r["state"] != "ns"]
+        else:  # chassis zone
+            return [r for r in readings if r["name"].startswith("FAN") and 
+                   not r["name"].startswith("FANA") and r["state"] != "ns"]
+
+    def _test_speed_step(self, hex_speed: str, zone: str, stabilize_time: int = 5) -> Dict[str, Any]:
+        """Test a specific speed step and record RPM ranges
+        
+        Args:
+            hex_speed: Hex value for speed step (e.g., "20", "40", "60", "ff")
+            zone: Fan zone ("chassis" or "cpu")
+            stabilize_time: Time to wait for fans to stabilize
+            
+        Returns:
+            Dictionary with RPM ranges and stability info
         """
         try:
-            # Set initial speed for specific zone
-            self.commander.set_fan_speed(speed, zone=zone)
+            # Set speed using raw command
+            zone_id = "0x01" if zone == "cpu" else "0x00"
+            command = f"raw 0x30 0x70 0x66 0x01 {zone_id} 0x{hex_speed}"
+            self.commander._execute_ipmi_command(command)
             
-            # Wait for fans to adjust
-            time.sleep(5)
+            # Wait for fans to stabilize
+            time.sleep(stabilize_time)
             
-            # Monitor for stability
-            start_time = time.time()
-            while time.time() - start_time < check_duration:
-                readings = self.commander.get_sensor_readings()
+            # Get fan readings
+            readings = self._get_fan_readings(zone)
+            if not readings:
+                return None
                 
-                # Filter fans by zone
-                if zone == "cpu":
-                    fan_readings = [r for r in readings if r["name"].startswith("FANA")]
-                else:  # chassis zone
-                    fan_readings = [r for r in readings if r["name"].startswith("FAN") and not r["name"].startswith("FANA")]
+            # Calculate RPM ranges
+            rpms = [r["value"] for r in readings if r["value"] is not None]
+            if not rpms:
+                return None
                 
-                # Check each fan
-                for fan in fan_readings:
-                    if fan["state"] != "ns":  # Skip non-responsive fans
-                        rpm = fan["value"]
-                        if rpm is None or rpm < 100:  # RPM too low or missing
-                            return False
-                
-                time.sleep(1)
-                
-            return True
+            return {
+                "min": min(rpms),
+                "max": max(rpms),
+                "stable": all(rpm >= 100 for rpm in rpms)  # Consider stable if all fans running
+            }
             
         except Exception as e:
-            logger.error(f"Stability check failed for {zone} zone: {e}")
-            return False
+            logger.error(f"Speed step test failed: {e}")
+            return None
 
-    def _learn_zone_minimum_speed(self, zone: str, start_speed: int = 30) -> int:
-        """Learn minimum stable speed for a specific fan zone
+    def _test_temperature_response(self, zone: str, step_name: str, hex_speed: str, duration: int = 300) -> Dict[str, Any]:
+        """Test temperature response at a specific fan speed
         
         Args:
             zone: Fan zone ("chassis" or "cpu")
+            step_name: Name of speed step being tested
+            hex_speed: Hex value for speed command
+            duration: Test duration in seconds
             
         Returns:
-            Minimum stable speed percentage
+            Dictionary with temperature response data
         """
-        # Start from the provided speed
-        test_speed = start_speed
-        last_stable = test_speed
-        
-        # Test decreasing speeds gradually
-        while test_speed >= 8:  # Don't test below 8% to ensure fan operation
-            if self._is_speed_stable(test_speed, zone=zone):
-                # Speed is stable, record it and try lower
-                last_stable = test_speed
-                test_speed -= 2  # Decrease in 2% increments for smoother testing
-            else:
-                # Speed unstable, use last stable speed
-                break
+        try:
+            # Set fan speed
+            zone_id = "0x01" if zone == "cpu" else "0x00"
+            command = f"raw 0x30 0x70 0x66 0x01 {zone_id} 0x{hex_speed}"
+            self.commander._execute_ipmi_command(command)
+            
+            # Monitor temperatures
+            start_time = time.time()
+            temps = []
+            while time.time() - start_time < duration:
+                readings = self.commander.get_sensor_readings()
+                temp_readings = [r for r in readings if "temp" in r["name"].lower()]
                 
-        return last_stable
+                # Get relevant temperatures for zone
+                if zone == "cpu":
+                    zone_temps = [r["value"] for r in temp_readings 
+                                if any(s in r["name"].lower() for s in ["cpu", "vrm"])
+                                and r["value"] is not None]
+                else:
+                    zone_temps = [r["value"] for r in temp_readings 
+                                if not any(s in r["name"].lower() for s in ["cpu", "vrm"])
+                                and r["value"] is not None]
+                
+                if zone_temps:
+                    temps.append({
+                        "time": time.time() - start_time,
+                        "temp": max(zone_temps)
+                    })
+                
+                time.sleep(10)  # Sample every 10 seconds
+            
+            # Calculate temperature response
+            if len(temps) >= 2:
+                temp_change = temps[-1]["temp"] - temps[0]["temp"]
+                time_to_stable = None
+                
+                # Find time to stabilize (when temp change < 1°C over 60s)
+                for i in range(len(temps)-6):  # 6 samples = 60s
+                    if abs(temps[i+6]["temp"] - temps[i]["temp"]) < 1:
+                        time_to_stable = temps[i+6]["time"]
+                        break
+                
+                return {
+                    "initial_temp": temps[0]["temp"],
+                    "final_temp": temps[-1]["temp"],
+                    "temp_change": temp_change,
+                    "time_to_stable": time_to_stable,
+                    "readings": temps
+                }
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Temperature response test failed: {e}")
+            return None
 
-    def learn_min_speeds(self) -> Dict[str, int]:
-        """Learn minimum stable speeds for each fan zone
+    def learn_board_config(self) -> Dict[str, Any]:
+        """Learn board-specific fan control parameters
         
         Returns:
-            Dictionary mapping zone names to minimum stable speeds
+            Dictionary with learned configuration
         """
-        min_speeds = {}
+        board_config = {
+            "speed_steps": {},
+            "min_speed": None,
+            "max_speed": None,
+            "thermal_response": {}  # New section for temperature response data
+        }
         
         try:
             # Enter manual mode
             self.commander.set_manual_mode()
             
-            # Learn speeds for each zone
-            for zone in ["chassis", "cpu"]:
-                min_speeds[zone] = self._learn_zone_minimum_speed(zone)
-                logger.info(f"Learned minimum speed for {zone} zone: {min_speeds[zone]}%")
+            # Define speed steps to test
+            STEPS = [
+                ("low", "20", 30),      # Low speed step (up to 30%)
+                ("medium", "40", 50),    # Medium speed step (up to 50%)
+                ("high", "60", 80),      # High speed step (up to 80%)
+                ("full", "ff", 100)      # Full speed step (up to 100%)
+            ]
             
-            # Update configuration with the highest minimum speed
-            # This ensures safe operation across all zones
-            self.config["fans"]["min_speed"] = max(min_speeds.values())
+            logger.info("Starting fan speed and temperature response learning")
+            
+            # Initialize thermal response sections
+            for zone in ["chassis", "cpu"]:
+                board_config["thermal_response"][zone] = {}
+            
+            total_steps = len(STEPS) * 2  # 2 zones per step
+            current_step = 0
+            
+            # Test each speed step
+            for step_name, hex_speed, threshold in STEPS:
+                logger.info(f"\nTesting speed step: {step_name} ({threshold}%)")
+                
+                # Create step configuration
+                step_config = {
+                    "threshold": threshold,
+                    "rpm_ranges": {}
+                }
+                
+                # Test each zone at this speed
+                for zone in ["chassis", "cpu"]:
+                    current_step += 1
+                    progress = (current_step / total_steps) * 100
+                    
+                    logger.info(f"\nProgress: {progress:.1f}%")
+                    logger.info(f"Testing {zone} zone at {threshold}% speed")
+                    logger.info("1. Testing fan speed stability...")
+                    
+                    # Test fan speeds
+                    rpm_range = self._test_speed_step(hex_speed, zone)
+                    if rpm_range and rpm_range["stable"]:
+                        step_config["rpm_ranges"][zone] = {
+                            "min": rpm_range["min"],
+                            "max": rpm_range["max"]
+                        }
+                        
+                        # Test temperature response
+                        logger.info("2. Testing temperature response (5 minutes)...")
+                        temp_response = self._test_temperature_response(zone, step_name, hex_speed)
+                        if temp_response:
+                            board_config["thermal_response"][zone][step_name] = temp_response
+                            logger.info(f"   Initial temp: {temp_response['initial_temp']:.1f}°C")
+                            logger.info(f"   Final temp: {temp_response['final_temp']:.1f}°C")
+                            logger.info(f"   Change: {temp_response['temp_change']:.1f}°C")
+                            if temp_response['time_to_stable']:
+                                logger.info(f"   Time to stabilize: {temp_response['time_to_stable']:.0f}s")
+                
+                # Add step config if we got valid readings
+                if step_config["rpm_ranges"]:
+                    board_config["speed_steps"][step_name] = step_config
+            
+            # Set min/max speeds based on discovered ranges
+            if board_config["speed_steps"]:
+                lowest_step = next(iter(board_config["speed_steps"].values()))
+                highest_step = list(board_config["speed_steps"].values())[-1]
+                board_config["min_speed"] = lowest_step["threshold"]
+                board_config["max_speed"] = highest_step["threshold"]
+            
+            # Update configuration
+            self.config["fans"]["board_config"] = board_config
             
             # Save updated configuration
             with open(self.config_path, 'w') as f:
                 yaml.safe_dump(self.config, f, default_flow_style=False)
-                
-            logger.info(f"Learned minimum speeds: {min_speeds}")
-            return min_speeds
+            
+            logger.info("Board configuration learned and saved")
+            return board_config
             
         except Exception as e:
             logger.error(f"Learning failed: {e}")

@@ -63,15 +63,32 @@ echo "Creating configuration directory..."
 mkdir -p /etc/superfan
 check_status "Config directory created"
 
-# Copy default config
-echo "Installing default configuration..."
-cp config/default.yaml /etc/superfan/config.yaml
-check_status "Default config installed"
+# Handle config installation/updates
+echo "Installing/updating configuration..."
+if [ -f "/etc/superfan/config.yaml" ]; then
+    echo "Existing config found, creating backup..."
+    cp /etc/superfan/config.yaml /etc/superfan/config.yaml.bak
+    check_status "Config backup created"
+    
+    echo "Installing new config..."
+    cp config/default.yaml /etc/superfan/config.yaml.new
+    echo "Please check /etc/superfan/config.yaml.new and merge any changes"
+else
+    echo "Installing default configuration..."
+    cp config/default.yaml /etc/superfan/config.yaml
+fi
+check_status "Config installation handled"
 
-# Install Python package
+# Install Python package in editable mode for development
 echo "Installing Python package..."
-pip install .
+pip install -e .
 check_status "Python package installed"
+
+# Ensure correct permissions
+echo "Setting permissions..."
+chown -R root:root /etc/superfan
+chmod 644 /etc/superfan/config.yaml*
+check_status "Permissions set"
 
 # Install systemd service
 echo "Installing systemd service..."

@@ -38,6 +38,43 @@ class CLI:
         self.parser = self._create_parser()
         self.manager: Optional[ControlManager] = None
         self._running = False
+        self.pid_file = "/var/run/superfan.pid"
+
+    def _check_running(self) -> bool:
+        """Check if another instance is running
+        
+        Returns:
+            True if another instance is running
+        """
+        if os.path.exists(self.pid_file):
+            try:
+                with open(self.pid_file) as f:
+                    pid = int(f.read())
+                # Check if process is running
+                os.kill(pid, 0)
+                return True
+            except (OSError, ValueError):
+                # Process not running or invalid PID
+                os.remove(self.pid_file)
+        return False
+
+    def _create_pid_file(self) -> None:
+        """Create PID file"""
+        with open(self.pid_file, "w") as f:
+            f.write(str(os.getpid()))
+
+    def _remove_pid_file(self) -> None:
+        """Remove PID file"""
+        if os.path.exists(self.pid_file):
+            os.remove(self.pid_file)
+
+    def _stop_service(self) -> None:
+        """Stop systemd service if running"""
+        try:
+            os.system("systemctl stop superfan")
+            time.sleep(2)  # Wait for service to stop
+        except Exception as e:
+            logger.warning(f"Failed to stop superfan service: {e}")
 
     def _create_parser(self) -> argparse.ArgumentParser:
         """Create command-line argument parser
@@ -229,6 +266,8 @@ class CLI:
                     target_speed = speeds["target"]
                     if target_speed is not None:
                         win.addstr(row, 25, f"{target_speed}%")
+                    elif "target" in speeds:  # Ensure we show target even if None
+                        win.addstr(row, 25, f"{speeds['current']}%")
                     
                     # Current RPM
                     readings = self.manager.commander.get_sensor_readings()
@@ -239,21 +278,22 @@ class CLI:
                         rpm_values = [r["value"] for r in zone_fans if r["value"] is not None]
                         if rpm_values:
                             avg_rpm = sum(rpm_values) / len(rpm_values)
-                            # Calculate actual percentage based on RPM range
-                            if zone == "cpu":
-                                min_rpm = 2500  # CPU fan minimum RPM
-                                max_rpm = 3800  # CPU fan maximum RPM
-                            else:
-                                min_rpm = 1000  # Chassis fan minimum RPM
-                                max_rpm = 2000  # Chassis fan maximum RPM
+                            # Get board configuration
+                            board_config = self.manager.config["fans"]["board_config"]
+                            speed_steps = board_config["speed_steps"]
                             
-                            # Calculate percentage within the valid RPM range
-                            if avg_rpm <= min_rpm:
-                                actual_pct = 0
-                            elif avg_rpm >= max_rpm:
-                                actual_pct = 100
-                            else:
-                                actual_pct = int((avg_rpm - min_rpm) / (max_rpm - min_rpm) * 100)
+                            # Map RPM to next highest step
+                            actual_pct = None
+                            for step_name, step_info in reversed(speed_steps.items()):
+                                rpm_range = step_info["rpm_ranges"][zone]
+                                min_rpm = rpm_range["min"] * 0.8  # Allow 20% below minimum
+                                if avg_rpm >= min_rpm:
+                                    actual_pct = step_info["threshold"]
+                                    break
+                                    
+                            if actual_pct is None:
+                                # If no step matches, use medium step for safety
+                                actual_pct = speed_steps["medium"]["threshold"]
                             
                             # Update current speed if it differs significantly
                             if abs(actual_pct - current_speed) > 10:
@@ -277,10 +317,20 @@ class CLI:
                     
                     # Target temperature
                     for zone_name, zone_config in self.manager.config["fans"]["zones"].items():
-                        if any(pattern.replace('*', '') in sensor for pattern in zone_config["sensors"]):
-                            target = zone_config["target"]
-                            win.addstr(row, 35, f"{target}°C")
-                            break
+                        # CPU zone: Match CPU and VRM sensors
+                        if zone_name == "cpu":
+                            if "CPU" in sensor or "VRM" in sensor:
+                                target = zone_config["target"]
+                                win.addstr(row, 35, f"{target}°C")
+                                break
+                        # Chassis zone: Match everything else
+                        else:
+                            # Convert sensor patterns to regex for proper matching
+                            sensor_patterns = [pattern.replace('*', '.*') for pattern in zone_config["sensors"]]
+                            if any(re.search(pattern, sensor, re.IGNORECASE) for pattern in sensor_patterns):
+                                target = zone_config["target"]
+                                win.addstr(row, 35, f"{target}°C")
+                                break
                             
                 # Display footer
                 row += 2
@@ -321,11 +371,45 @@ class CLI:
                 learning_mode=bool(args.learn)
             )
             
+            if args.learn or args.monitor:
+                # Check for running instance
+                if self._check_running():
+                    print("Another instance of superfan is running")
+                    print("Please stop the service first: sudo systemctl stop superfan")
+                    return
+
+                # Stop systemd service
+                self._stop_service()
+
+                # Create PID file
+                self._create_pid_file()
+
             if args.learn:
+                print("Starting fan speed and temperature response learning...")
+                print("\nThis process will:")
+                print("1. Test different fan speed steps")
+                print("2. Record RPM ranges for each zone")
+                print("3. Measure temperature response")
+                print("\nThis will take approximately 20-30 minutes.")
+                print("The system may get warmer than usual during testing.")
+                
+                try:
+                    input("\nPress Enter to start learning, or Ctrl+C to cancel...")
+                except KeyboardInterrupt:
+                    print("\nLearning cancelled.")
+                    self._remove_pid_file()
+                    return
+                
                 # Start learning mode
-                print("Starting fan speed learning mode...")
                 self.manager.start()
-                print("Learning complete. Updated configuration saved.")
+                
+                print("\nLearning complete!")
+                print("\nUpdated configuration includes:")
+                print("- Fan speed steps and RPM ranges")
+                print("- Temperature response characteristics")
+                print("- Safe minimum and maximum speeds")
+                print("\nConfiguration saved to:", args.config)
+                
                 self.manager.stop()
                 
             elif args.manual is not None:
@@ -390,6 +474,17 @@ class CLI:
         except Exception as e:
             logger.error(f"Error: {e}")
             sys.exit(1)
+            
+        finally:
+            # Clean up
+            self._remove_pid_file()
+            
+            # Restart service if we stopped it
+            if args.learn or args.monitor:
+                try:
+                    os.system("systemctl start superfan")
+                except Exception as e:
+                    logger.warning(f"Failed to restart superfan service: {e}")
 
 def main() -> None:
     """Main entry point"""

@@ -223,18 +223,22 @@ class SensorReader:
         """Discover available temperature sensors matching patterns"""
         try:
             readings = self.commander.get_sensor_readings()
-            # If no patterns specified, include all sensors
+            # Filter for temperature sensors first
+            temp_sensors = [r for r in readings if "Temp" in r["name"]]
+            logger.debug(f"Found temperature sensors: {[r['name'] for r in temp_sensors]}")
+            
+            # If no patterns specified, include all temperature sensors
             if not self.sensor_patterns:
-                self.sensor_names = {r["name"] for r in readings}
+                self.sensor_names = {r["name"] for r in temp_sensors}
             else:
-                # Match sensors against patterns
+                # Match temperature sensors against patterns
                 self.sensor_names = set()
                 logger.debug(f"Matching sensors against patterns: {[p.pattern for p in self.sensor_patterns]}")
-                for reading in readings:
+                for reading in temp_sensors:
                     name = reading["name"]
                     logger.debug(f"Checking sensor: {name}")
                     for pattern in self.sensor_patterns:
-                        if pattern.search(name):  # Use search instead of match for more flexible matching
+                        if pattern.match(name):  # Use match to ensure pattern matches from start
                             logger.debug(f"Sensor {name} matched pattern {pattern.pattern}")
                             self.sensor_names.add(name)
                             break

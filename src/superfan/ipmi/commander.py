@@ -9,6 +9,7 @@ import subprocess
 import logging
 import math
 import time
+import yaml
 from typing import Optional, List, Dict, Tuple, Union
 from enum import Enum
 
@@ -71,7 +72,8 @@ class IPMICommander:
         MotherboardGeneration.H12: {
             "SET_MANUAL_MODE": "raw 0x30 0x45 0x01 0x01",
             "SET_AUTO_MODE": "raw 0x30 0x45 0x01 0x00",
-            "SET_FAN_SPEED": "raw 0x30 0x70 0x66 0x01 0x00",  # H12 needs extra 0x00 before speed
+            "SET_FAN_SPEED": "raw 0x30 0x70 0x66 0x01",  # H12 uses different command sequence
+            "GET_FAN_MODE": "raw 0x30 0x45 0x00",  # Get current fan control mode
         },
         MotherboardGeneration.X13: {
             "SET_MANUAL_MODE": "raw 0x30 0x45 0x01 0x01",
@@ -80,11 +82,12 @@ class IPMICommander:
         }
     }
 
-    def __init__(self, host: str = "localhost", username: str = "ADMIN",
+    def __init__(self, config_path: str, host: str = "localhost", username: str = "ADMIN",
                  password: str = "ADMIN", interface: str = "lanplus"):
         """Initialize IPMI commander with connection details
 
         Args:
+            config_path: Path to configuration file
             host: IPMI host address
             username: IPMI username
             password: IPMI password
@@ -95,6 +98,10 @@ class IPMICommander:
         self.password = password
         self.interface = interface
         self.board_gen: Optional[MotherboardGeneration] = None
+        
+        # Load configuration
+        with open(config_path) as f:
+            self.config = yaml.safe_load(f)
         
         # Detect board generation on init
         self.detect_board_generation()
@@ -191,6 +198,8 @@ class IPMICommander:
                     text=True,
                     check=True
                 )
+                # Add delay after each successful command
+                time.sleep(2)
                 return result.stdout.strip()
             except subprocess.CalledProcessError as e:
                 last_error = e
@@ -340,35 +349,94 @@ class IPMICommander:
         if self.board_gen == MotherboardGeneration.UNKNOWN:
             raise IPMIError("Unknown board generation")
         
-        # Ensure minimum speed of 2%
-        speed_percent = max(2, speed_percent)
+        # Ensure minimum speed of 20% for H12 boards, 5% for others
+        min_speed = 20 if self.board_gen == MotherboardGeneration.H12 else 5
+        speed_percent = max(min_speed, speed_percent)
         
-        # For H12 boards, we need to use a different command format
+        # Convert percentage to hex value (0-255)
+        hex_val = int(speed_percent * 255 / 100)
+        hex_val = max(51, min(255, hex_val))  # Ensure between 0x33 (20%) and 0xFF
+        hex_speed = format(hex_val, '02x')
+        
+        # Get base command
+        base_command = self.COMMANDS[self.board_gen]["SET_FAN_SPEED"]
+        
+        # Set zone ID (0x00 for chassis, 0x01 for CPU)
+        zone_id = "0x01" if zone == "cpu" else "0x00"
+        
+        # For H12, use verified command format with proper speed steps
         if self.board_gen == MotherboardGeneration.H12:
-            # Convert percentage to duty cycle (0-100)
-            duty = max(20, min(100, speed_percent))  # Ensure minimum 20%
-            hex_duty = format(duty, '02x')
-            
-            # For H12, use raw 0x30 0x91 0x5A 0x03 0x10 for chassis fans
-            # and raw 0x30 0x91 0x5A 0x03 0x11 for CPU fan
-            zone_id = "0x11" if zone == "cpu" else "0x10"
-            command = f"raw 0x30 0x91 0x5A 0x03 {zone_id} 0x{hex_duty}"
+            try:
+                # Get board configuration from config file
+                board_config = self.config["fans"]["board_config"]
+                speed_steps = board_config["speed_steps"]
+                
+                # H12 Fan speed steps:
+                # 0xFF (100%):  FAN1=1120, FAN2-4=980, FAN5=1260
+                # 0x60 (37.5%): FAN1=1680, FAN2-4=1400, FAN5=1820
+                # 0x40 (25%):   FAN1=1260, FAN2-4=980, FAN5=1260
+                # 0x20 (12.5%): FAN1=980, FAN2-4=840, FAN5=1260
+                
+                # Map to closest step based on actual board values
+                if speed_percent < 25:
+                    hex_speed = "20"  # 12.5% step
+                    step_name = "low"
+                    actual_percent = 12.5
+                elif speed_percent < 37.5:
+                    hex_speed = "40"  # 25% step
+                    step_name = "medium"
+                    actual_percent = 25
+                elif speed_percent < 50:
+                    hex_speed = "60"  # 37.5% step
+                    step_name = "high"
+                    actual_percent = 37.5
+                else:
+                    hex_speed = "ff"  # 100% step
+                    step_name = "full"
+                    actual_percent = 100
+                
+                selected_step = speed_steps[step_name]
+                actual_percent = selected_step["threshold"]
+                logger.info(f"H12 board: Requested {speed_percent}%, using {actual_percent}% step")
+                
+                # H12 command format: 0x30 0x70 0x66 0x01 [zone] [speed]
+                command = f"{base_command} {zone_id} 0x{hex_speed}"
+                self._execute_ipmi_command(command)
+                
+                # Wait for fans to stabilize
+                time.sleep(2)
+                
+                # Verify fans are working
+                new_readings = self.get_sensor_readings()
+                new_fans = [r for r in new_readings if r["name"].startswith("FAN")]
+                working_fans = [f for f in new_fans if f["value"] is not None and f["value"] > 0]
+                
+                if len(working_fans) < 2:
+                    logger.error("Insufficient working fans after speed change")
+                    self.set_auto_mode()
+                    raise IPMIError("Fan speed change failed - insufficient working fans")
+                
+                # Verify fans are working
+                for fan in working_fans:
+                    zone = "cpu" if fan["name"].startswith("FANA") else "chassis"
+                    rpm = fan["value"]
+                    
+                    # Get RPM range for current step
+                    rpm_range = selected_step["rpm_ranges"][zone]
+                    min_rpm = rpm_range["min"] * 0.8  # Allow 20% below minimum
+                    
+                    if rpm < min_rpm:
+                        logger.warning(f"{fan['name']} RPM ({rpm}) below minimum ({min_rpm})")
+                
+            except Exception as e:
+                logger.error(f"Failed to set fan speed: {e}")
+                self.set_auto_mode()
+                raise
         else:
             # For other boards, use standard command format
-            hex_val = int(speed_percent * 255 / 100)
-            hex_val = max(4, min(255, hex_val))  # Ensure between 0x04 and 0xFF
-            hex_speed = format(hex_val, '02x')
-            
-            # Get base command
-            base_command = self.COMMANDS[self.board_gen]["SET_FAN_SPEED"]
-            
-            # Set zone ID (0x00 for chassis, 0x01 for CPU)
-            zone_id = "0x01" if zone == "cpu" else "0x00"
-            
-            # Construct full command with zone and speed
             command = f"{base_command} {zone_id} 0x{hex_speed}"
+            self._execute_ipmi_command(command)
         
-        self._execute_ipmi_command(command)
         logger.info(f"{zone.title()} fan speed set to {speed_percent}%")
 
     def get_sensor_readings(self) -> List[Dict[str, Union[str, float, int]]]:
@@ -442,47 +510,36 @@ class IPMICommander:
             logger.error("No fan readings available")
             return False
             
-        # Define RPM ranges for different fan groups
-        FAN_RANGES = {
-            # Group 1: Higher RPM range
-            "FAN1": {"min": 1000, "max": 2000},
-            "FAN5": {"min": 1000, "max": 2000},
-            # Group 2: Lower RPM range
-            "FAN2": {"min": 1000, "max": 2000},
-            "FAN3": {"min": 1000, "max": 2000},
-            "FAN4": {"min": 1000, "max": 2000},
-            # CPU fan
-            "FANA": {"min": 2500, "max": 3800},
-        }
+        # Get board configuration
+        board_config = self.config["fans"]["board_config"]
+        speed_steps = board_config["speed_steps"]
+        
+        # Find appropriate speed step for target speed
+        current_step = None
+        for step_name, step_info in speed_steps.items():
+            if target_speed <= step_info["threshold"]:
+                current_step = step_info
+                break
+        else:
+            current_step = speed_steps["full"]
         
         working_fans = 0
         for fan in fan_readings:
-            if fan["state"] == "ns":
+            if fan["state"] == "ns" or fan["value"] is None:
                 continue
                 
+            # Determine fan zone
+            zone = "cpu" if fan["name"].startswith("FANA") else "chassis"
             rpm = fan["value"]
-            if rpm is None:
-                continue
-                
-            # Get fan range based on name
-            fan_range = None
-            for pattern, range_info in FAN_RANGES.items():
-                if pattern in fan["name"]:
-                    fan_range = range_info
-                    break
-                    
-            if fan_range:
-                # Calculate expected RPM for this fan
-                rpm_range = fan_range["max"] - fan_range["min"]
-                expected_rpm = fan_range["min"] + (rpm_range * target_speed / 100.0)
-                min_rpm = expected_rpm * (1 - tolerance/100.0)
-                
-                if rpm >= min_rpm:
-                    working_fans += 1
-                else:
-                    logger.warning(f"{fan['name']} RPM ({rpm}) below expected minimum ({min_rpm})")
+            
+            # Get RPM range for this step and zone
+            rpm_range = current_step["rpm_ranges"][zone]
+            min_rpm = rpm_range["min"] * (1 - tolerance/100.0)  # Allow for tolerance
+            
+            if rpm >= min_rpm:
+                working_fans += 1
             else:
-                logger.debug(f"No RPM range defined for {fan['name']}")
+                logger.warning(f"{fan['name']} RPM ({rpm}) below expected minimum ({min_rpm})")
                 
         # Require at least 2 working fans
         min_working = 2
