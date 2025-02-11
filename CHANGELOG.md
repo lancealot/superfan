@@ -8,36 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Testing
-- Improved test coverage for IPMI commander module:
+- Significantly improved test coverage for IPMI commander module (41% → 49%):
   * Added board generation detection tests:
-    - DMI info detection for H12
-    - IPMI info detection for X9-X13
-    - Firmware version fallback detection
-    - Multiple detection methods and precedence
-  * Added fan control command tests:
+    - DMI info detection for H12 boards
+    - IPMI info detection for X9-X13 series
+    - Firmware version fallback detection (1.x-3.x)
+    - Multiple detection methods and precedence rules
+    - Board detection retry behavior
+  * Added fan mode control tests:
+    - Manual/auto mode switching
+    - Mode verification after changes
+    - Error handling for mode changes
+    - Unknown board generation handling
+  * Added fan speed control tests:
     - Fan speed percentage to hex conversion
     - Board-specific command formats
     - Zone-based control (chassis/CPU)
-    - Minimum speed enforcement
-  * Added sensor reading tests:
-    - Temperature and fan speed parsing
-    - Kelvin format handling
-    - Response ID tracking
-    - Edge case handling
-  * Added fan speed verification tests:
-    - RPM range validation
-    - Tolerance checking
-    - Mixed fan group handling
+    - Minimum speed enforcement (2%/5%)
+    - Speed validation and safety checks
   * Added error handling tests:
-    - Command retries
-    - Device busy conditions
-    - Connection failures
-    - Unexpected errors
+    - Command retries on device busy
+    - Connection failure handling
+    - Unexpected error recovery
+    - Maximum retry attempts
+  * Added command validation tests:
+    - Blacklisted command checking
+    - Command format validation
+    - Fan mode validation
+    - Fan speed range validation
   * Improved test infrastructure:
     - Better subprocess mocking
     - Command validation
     - Error simulation
     - Board detection scenarios
+    - Consistent test patterns
 
 ## [0.1.0] - 2025-02-10
 

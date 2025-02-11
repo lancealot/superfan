@@ -119,14 +119,27 @@ python -m pytest tests/test_curve.py
   * Terminal resize handling
   * Color-coded temperature display
 
-- IPMI Commander: 95% coverage
-  * Board generation detection
-  * Fan speed control commands
-  * Sensor reading parsing
-  * Fan speed verification
-  * Error handling and retries
-  * Command validation
-  * Safety checks
+- IPMI Commander: 49% coverage
+  * Board generation detection:
+    - DMI info detection for H12
+    - IPMI info detection for X9-X13
+    - Firmware version fallback detection
+    - Multiple detection methods and precedence
+  * Fan control commands:
+    - Fan mode control (manual/auto)
+    - Fan speed percentage to hex conversion
+    - Board-specific command formats
+    - Zone-based control (chassis/CPU)
+    - Minimum speed enforcement
+  * Error handling:
+    - Command retries
+    - Device busy conditions
+    - Connection failures
+    - Unexpected errors
+  * Command validation:
+    - Blacklist checking
+    - Format validation
+    - Safety checks
 
 - Fan Curve Implementations: 93% coverage
   * Linear curve calculations
@@ -151,11 +164,26 @@ python -m pytest tests/test_curve.py
 
 - Complete CLI interface test coverage
 - Comprehensive IPMI commander tests:
-  * Board generation detection
-  * Fan control commands
-  * Sensor reading parsing
-  * Error handling
-  * Safety validation
+  * Board generation detection:
+    - DMI info detection for H12
+    - IPMI info detection for X9-X13
+    - Firmware version fallback detection
+    - Multiple detection methods and precedence
+  * Fan control commands:
+    - Fan mode control (manual/auto)
+    - Fan speed percentage to hex conversion
+    - Board-specific command formats
+    - Zone-based control (chassis/CPU)
+    - Minimum speed enforcement
+  * Error handling:
+    - Command retries
+    - Device busy conditions
+    - Connection failures
+    - Unexpected errors
+  * Command validation:
+    - Blacklist checking
+    - Format validation
+    - Safety checks
 - Robust mock implementations
 - Consistent test patterns
 - Proper cleanup in all test cases

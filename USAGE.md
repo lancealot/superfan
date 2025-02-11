@@ -414,7 +414,7 @@ python -m pytest
 python -m pytest tests/test_curve.py
 ```
 
-Current test coverage (as of 2025-02-08):
+Current test coverage (as of 2025-02-11):
 - Fan curve implementations: 93% coverage
 - CLI interface: 100% coverage
   * Monitor mode functionality
@@ -424,12 +424,38 @@ Current test coverage (as of 2025-02-08):
   * Fan speed mismatch detection
   * Signal handling and cleanup
 - Control manager: 15% coverage (needs improvement)
-- IPMI commander: 27% coverage (needs improvement)
+- IPMI commander: 49% coverage
+  * Board generation detection
+  * Fan mode control
+  * Fan speed control
+  * Error handling
+  * Command validation
 - IPMI sensors: 28% coverage (needs improvement)
 
 Latest Test Improvements:
 - Complete CLI interface test coverage
-- Robust mock curses implementation
+- Comprehensive IPMI commander tests:
+  * Board generation detection:
+    - DMI info detection for H12
+    - IPMI info detection for X9-X13
+    - Firmware version fallback detection
+    - Multiple detection methods and precedence
+  * Fan control commands:
+    - Fan mode control (manual/auto)
+    - Fan speed percentage to hex conversion
+    - Board-specific command formats
+    - Zone-based control (chassis/CPU)
+    - Minimum speed enforcement
+  * Error handling:
+    - Command retries
+    - Device busy conditions
+    - Connection failures
+    - Unexpected errors
+  * Command validation:
+    - Blacklist checking
+    - Format validation
+    - Safety checks
+- Robust mock implementations
 - Consistent test patterns
 - Proper cleanup in all test cases
 - Signal handling verification
