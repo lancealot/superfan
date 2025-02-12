@@ -1,50 +1,67 @@
 # H12 Fan Control Investigation Results (2025-02-11)
 
-## Current Status
-- Manual fan control on H12 boards is not working reliably:
-  * Documented command formats are not stable:
-    - Basic format (0x30 0x70 0x66 0x01 [zone] [speed]) causes fans to stop
-    - X10 format (0x30 0x70 0x66 0x01 [zone] 0x00 [speed]) also unstable
-  * Auto mode works correctly, suggesting BMC has special handling
-  * Fan behavior is inconsistent:
-    - Some fans stop completely
-    - Others run at different speeds than commanded
-    - CPU fan (FANA) responds differently than chassis fans
+## H12 Board Support Status (Updated 2025-02-11)
 
-## Verified Working Commands
-1. Mode Control:
-   - Get Mode: 0x30 0x45 0x00 (returns "01" for manual, "00" for auto)
-   - Set Auto: 0x30 0x45 0x01 0x00 (works reliably)
-   - Set Manual: 0x30 0x45 0x01 0x01 (works but fan control unreliable)
+### Board Detection Implementation
+1. Primary Method (DMI):
+   - Uses dmidecode to get detailed board information
+   - Specifically looks for "h12" markers
+   - Most reliable detection method
+   - Example: `sudo dmidecode -t baseboard`
 
-2. Fan Status:
-   - Auto mode RPM ranges verified:
+2. Fallback Method (IPMI):
+   - Uses IPMI MC info if DMI fails
+   - Looks for "h12" or "b12" markers
+   - Example: `ipmitool mc info`
+
+3. Detection Reliability:
+   - No longer attempts firmware version detection
+   - Properly defaults to UNKNOWN if detection fails
+   - Logs clear warnings about detection method used
+
+### Current Limitations
+1. Manual Fan Control:
+   - Not supported on H12 boards
+   - Command formats are unstable:
+     * Basic format (0x30 0x70 0x66 0x01 [zone] [speed]) causes fans to stop
+     * X10 format (0x30 0x70 0x66 0x01 [zone] 0x00 [speed]) also unstable
+   - CPU fan (FANA) responds differently than chassis fans
+
+2. Working Features:
+   - Auto mode operation is stable
+   - Temperature monitoring works correctly
+   - Fan speed reporting is accurate
+   - RPM ranges verified in auto mode:
      * FAN1: 1400-1820 RPM
      * FAN2-4: 1120-1400 RPM
      * FAN5: 1680-1960 RPM
      * FANA: 3500-3780 RPM
      * FANB: Non-responsive (expected)
 
-## Recommended Approach
+### Current Implementation
 1. H12 Board Handling:
-   - Detect H12 boards early via DMI information
-   - Prevent manual fan control attempts
-   - Keep system in automatic mode for stability
-   - Monitor temperatures and fan speeds passively
-   - Log clear warnings about H12 limitations
+   - Early detection via DMI/IPMI
+   - Automatic mode enforcement
+   - Passive monitoring only
+   - Clear user warnings
+   - Detailed logging
 
-2. Auto Mode Operation:
-   - Verified working RPM ranges:
-     * FAN1: 1400-1820 RPM
-     * FAN2-4: 1120-1400 RPM
-     * FAN5: 1680-1960 RPM
-     * FANA: 3500-3780 RPM
-   - BMC handles fan curves automatically
-   - Provides stable and safe operation
-   - Prevents fan stalling issues
+2. Safety Measures:
+   - Prevents manual control attempts
+   - Maintains BMC automatic control
+   - Monitors temperatures safely
+   - Logs all control attempts
+   - Proper error handling
 
-3. Future Considerations:
+### Future Work
+1. Short Term:
+   - Improve detection logging
+   - Add more H12 detection patterns
+   - Enhance user warnings
+   - Document thermal patterns
+
+2. Long Term:
    - Monitor BMC firmware updates
-   - Document thermal behavior patterns
-   - Consider temperature monitoring only mode
-   - Research vendor-specific control methods
+   - Research vendor control methods
+   - Consider H12-specific features
+   - Explore BMC configuration options

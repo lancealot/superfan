@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Removed incorrect firmware version fallback detection in board detection logic
+  * Previously attempted to guess board generation from firmware version numbers
+  * Now properly defaults to UNKNOWN if both DMI and IPMI detection methods fail
+  * Prevents potential misidentification of board generations
+
 ### Added
+- Added comprehensive development documentation:
+  * Added architecture overview and diagrams
+  * Added development guidelines and standards
+  * Added testing strategy documentation
+  * Added performance guidelines
+  * Added debugging and monitoring guides
+  * Added release process documentation
+
 - Improved sensor pattern handling:
   * Added support for flexible wildcard patterns in sensor names
   * Enhanced pattern matching to handle variations in sensor naming
@@ -15,6 +29,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   * Updated default patterns for better cross-system compatibility
 
 ### Changed
+- Enhanced code documentation:
+  * Added comprehensive docstrings with examples and type hints
+  * Added detailed parameter and return value documentation
+  * Added error handling information and safety considerations
+  * Added implementation notes and usage examples
+  * Added validation and edge case details
+  * Improved IPMI package documentation:
+    - Enhanced SensorReading class documentation
+    - Added detailed NVMETemperatureReader class docstrings
+    - Improved SensorReader class method documentation
+    - Enhanced CombinedTemperatureReader class docstrings
+    - Added package-level documentation in __init__.py
+
 - Monitor mode improvements:
   * Automatically stops superfan.service when starting monitor mode
   * Automatically restarts service when exiting monitor mode
@@ -22,7 +49,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   * Added proper cleanup on monitor mode exit
 
 ### Testing
-- Significantly improved test coverage for IPMI commander module (41% → 49%):
+- Added comprehensive performance test suite:
+  * Added response time tests (temperature updates, fan speed changes)
+  * Added resource usage tests (memory, CPU)
+  * Added stress tests (rapid changes, concurrent operations)
+  * Added load tests (many sensors, continuous operation)
+  * Added memory leak tests (long-running, repeated operations)
+  * Added performance thresholds and benchmarks
+
+- Added comprehensive integration test suite:
+  * Added end-to-end fan control tests
+  * Added emergency scenario tests
+  * Added temperature monitoring tests
+  * Added learning mode integration tests
+  * Added error recovery tests
+  * Added cross-module interaction tests
+
+- Improved IPMI Sensors test coverage (28% → 85%):
+  * Added comprehensive test suite with 13 test cases
+  * Added NVMe temperature monitoring tests
+  * Added sensor pattern matching tests
+  * Added reading validation tests
+  * Added statistics calculation tests
+  * Added combined reader integration tests
+
+- Improved Control Manager test coverage (15% → 90%):
+  * Added comprehensive test suite with 12 test cases
+  * Added NVMe temperature integration tests
+  * Added fan curve behavior tests
+  * Added safety feature tests
+  * Added learning mode tests
+  * Added error handling tests
+  * Added zone-specific threshold tests
+
+- Significantly improved test coverage for IPMI commander module (49% → 90%):
+  * Added comprehensive test suite with 15 test cases
   * Added board generation detection tests:
     - DMI info detection for H12 boards
     - IPMI info detection for X9-X13 series

@@ -349,7 +349,23 @@ Note: When changing fan speeds, allow 5 seconds between changes for:
 ipmitool sdr list
 ```
 
-2. Sensor Reading Issues
+2. Board Detection and Compatibility
+```bash
+# Check board information via DMI (primary detection method)
+sudo dmidecode -t baseboard
+
+# Check board information via IPMI (fallback detection)
+ipmitool mc info
+
+# Note: H12 Series Boards
+# - H12 boards are detected via DMI info or IPMI board markers
+# - Manual fan control is not supported on H12 boards
+# - System will automatically use BMC automatic mode
+# - Temperature monitoring and logging still available
+# - Clear warnings will be logged about H12 limitations
+```
+
+3. Sensor Reading Issues
 ```bash
 # Check sensor status
 ipmitool sdr list

@@ -107,13 +107,29 @@ class IPMICommander:
         self.detect_board_generation()
 
     def _validate_raw_command(self, command: str) -> None:
-        """Validate a raw IPMI command for safety
+        """Validate a raw IPMI command for safety and format.
+
+        This method checks IPMI commands for:
+        1. Blacklisted commands that could affect system stability
+        2. Valid hex format in command bytes
+        3. Safe fan control parameters
+        4. Valid mode control values
 
         Args:
-            command: Raw IPMI command string
+            command: Raw IPMI command string (e.g., "raw 0x30 0x45 0x01 0x01")
 
         Raises:
-            IPMIError: If command is blacklisted or invalid
+            IPMIError: If command is blacklisted or invalid:
+                - "Command {hex(netfn)} {hex(cmd)} is blacklisted for safety"
+                - "Invalid command format: malformed hex value"
+                - "Invalid fan mode: {hex(mode)}"
+                - "Fan speed too low: {hex(speed)}"
+
+        Examples:
+            >>> commander._validate_raw_command("raw 0x30 0x45 0x01 0x01")  # Valid mode change
+            >>> commander._validate_raw_command("raw 0x30 0x70 0x66 0x01 0x00 0x32")  # Valid speed
+            >>> commander._validate_raw_command("raw 0x06 0x01")  # Raises IPMIError (blacklisted)
+            >>> commander._validate_raw_command("raw 0xZZ 0x01")  # Raises IPMIError (invalid hex)
         """
         # Parse raw command format (e.g., "raw 0x30 0x45 0x01 0x01")
         parts = command.split()
@@ -219,13 +235,38 @@ class IPMICommander:
         raise IPMIError(f"Command failed after {retries} attempts: {str(last_error)}")
 
     def detect_board_generation(self) -> MotherboardGeneration:
-        """Detect the Supermicro motherboard generation
+        """Detect the Supermicro motherboard generation using multiple methods.
+
+        This method uses a multi-step approach to detect the board generation:
+        1. Primary: DMI detection via dmidecode
+           - Most accurate, especially for H12 boards
+           - Requires root access
+        2. Fallback: IPMI detection via mc info
+           - Uses board markers in IPMI info
+           - Works without root access
+           - Less accurate than DMI
+
+        Board Detection Patterns:
+        - H12: "h12" in DMI or "h12"/"b12" in IPMI
+        - X13: "x13"/"h13"/"b13" in IPMI
+        - X11: "x11"/"h11"/"b11" in IPMI
+        - X10: "x10"/"h10"/"b10" in IPMI
+        - X9:  "x9"/"h9"/"b9" in IPMI
 
         Returns:
-            Detected motherboard generation
+            MotherboardGeneration: The detected board generation enum value.
+                One of: X9, X10, X11, H12, X13, or UNKNOWN
 
         Raises:
-            IPMIError: If board generation cannot be determined
+            IPMIError: If board generation cannot be determined:
+                - "Failed to detect board generation: {error}"
+                - "Could not determine board generation"
+
+        Examples:
+            >>> commander = IPMICommander("config.yaml")
+            >>> gen = commander.detect_board_generation()
+            >>> print(gen)
+            MotherboardGeneration.H12
         """
         try:
             # First try dmidecode for most accurate information
@@ -261,20 +302,8 @@ class IPMICommander:
                 self.board_gen = MotherboardGeneration.X10
             elif any(x in board_info for x in ["x9", "h9", "b9"]):
                 self.board_gen = MotherboardGeneration.X9
-            else:
-                # Try to detect from firmware version
-                for line in output.splitlines():
-                    if "Firmware Revision" in line:
-                        version = line.lower()
-                        if "3." in version:
-                            self.board_gen = MotherboardGeneration.X13
-                        elif "2." in version:
-                            self.board_gen = MotherboardGeneration.X11
-                        elif "1." in version:
-                            self.board_gen = MotherboardGeneration.X10
-                        break
-                
             if not self.board_gen:
+                logger.warning("Could not detect board generation via DMI or IPMI info")
                 self.board_gen = MotherboardGeneration.UNKNOWN
                 raise IPMIError("Could not determine board generation")
                 
@@ -286,13 +315,25 @@ class IPMICommander:
             raise IPMIError(f"Failed to detect board generation: {str(e)}")
 
     def get_fan_mode(self) -> bool:
-        """Get current fan control mode
-        
+        """Get current fan control mode from BMC.
+
+        This method queries the BMC to determine if fans are in manual or automatic control mode.
+        It uses the command "raw 0x30 0x45 0x00" which returns:
+        - "01" for manual mode (user-controlled fan speeds)
+        - "00" for automatic mode (BMC-controlled fan speeds)
+
         Returns:
-            True if in manual mode, False if in automatic mode
-        
+            bool: True if in manual mode, False if in automatic mode
+
         Raises:
-            IPMIError: If mode cannot be determined
+            IPMIError: If mode cannot be determined:
+                - "Failed to get fan mode: {error}"
+
+        Examples:
+            >>> commander = IPMICommander("config.yaml")
+            >>> is_manual = commander.get_fan_mode()
+            >>> print("Manual" if is_manual else "Auto")
+            Auto
         """
         try:
             result = self._execute_ipmi_command("raw 0x30 0x45 0x00")
@@ -302,7 +343,29 @@ class IPMICommander:
             raise IPMIError(f"Failed to get fan mode: {e}")
 
     def set_manual_mode(self) -> None:
-        """Set fan control to manual mode"""
+        """Set fan control to manual mode for direct speed control.
+
+        This method switches fan control from automatic (BMC-controlled) to manual mode,
+        allowing direct control of fan speeds. It performs the following steps:
+        1. Verifies board generation is known
+        2. Sends manual mode command for the specific board
+        3. Verifies mode change was successful
+
+        Note:
+            - H12 boards do not support reliable manual control
+            - Manual mode disables BMC's automatic temperature management
+            - Always use appropriate safety checks when in manual mode
+
+        Raises:
+            IPMIError: If manual mode cannot be set:
+                - "Unknown board generation"
+                - "Failed to enter manual mode"
+
+        Examples:
+            >>> commander = IPMICommander("config.yaml")
+            >>> commander.set_manual_mode()  # Enable manual control
+            >>> commander.set_fan_speed(50, zone="cpu")  # Now we can set speeds
+        """
         if self.board_gen == MotherboardGeneration.UNKNOWN:
             raise IPMIError("Unknown board generation")
             
@@ -316,7 +379,30 @@ class IPMICommander:
         logger.info("Fan control set to manual mode")
 
     def set_auto_mode(self) -> None:
-        """Restore automatic fan control"""
+        """Restore automatic fan control by returning control to BMC.
+
+        This method switches fan control from manual (user-controlled) to automatic mode,
+        returning temperature management to the BMC. It performs the following steps:
+        1. Verifies board generation is known
+        2. Sends auto mode command for the specific board
+        3. Verifies mode change was successful
+
+        This is a safety-critical operation used in several scenarios:
+        - Normal cleanup when exiting
+        - Emergency fallback on errors
+        - Recovery from failed fan speed changes
+        - Response to critical temperatures
+
+        Raises:
+            IPMIError: If automatic mode cannot be set:
+                - "Unknown board generation"
+                - "Failed to enter automatic mode"
+
+        Examples:
+            >>> commander = IPMICommander("config.yaml")
+            >>> commander.set_auto_mode()  # Return control to BMC
+            >>> assert not commander.get_fan_mode()  # Verify in auto mode
+        """
         if self.board_gen == MotherboardGeneration.UNKNOWN:
             raise IPMIError("Unknown board generation")
             
@@ -330,15 +416,50 @@ class IPMICommander:
         logger.info("Fan control restored to automatic mode")
 
     def set_fan_speed(self, speed_percent: int, zone: str = "chassis") -> None:
-        """Set fan speed as percentage for a specific zone
+        """Set fan speed for a specific cooling zone with board-specific handling.
+
+        This method sets fan speeds with special handling for different board generations:
+
+        H12 Boards:
+        - Uses fixed speed steps: 12.5%, 25%, 37.5%, 100%
+        - Maps requested speed to nearest step
+        - Verifies RPM ranges per step:
+          * 12.5%: FAN1=980, FAN2-4=840, FAN5=1260
+          * 25%:   FAN1=1260, FAN2-4=980, FAN5=1260
+          * 37.5%: FAN1=1680, FAN2-4=1400, FAN5=1820
+          * 100%:  FAN1=1120, FAN2-4=980, FAN5=1260
+
+        Other Boards:
+        - Uses continuous speed range (5-100%)
+        - Converts percentage to hex value (0-255)
+        - Uses standard command format
+
+        The method includes several safety checks:
+        1. Validates speed and zone parameters
+        2. Enforces minimum speeds (20% for H12, 5% for others)
+        3. Verifies fan operation after changes
+        4. Falls back to auto mode on errors
 
         Args:
             speed_percent: Fan speed percentage (0-100)
             zone: Fan zone ("chassis" or "cpu")
 
         Raises:
-            ValueError: If speed_percent is out of range or invalid zone
-            IPMIError: If command fails
+            ValueError: If parameters are invalid:
+                - "Fan speed must be between 0 and 100"
+                - "Zone must be 'chassis' or 'cpu'"
+            IPMIError: If operation fails:
+                - "Unknown board generation"
+                - "Fan speed change failed - insufficient working fans"
+                - "Failed to set fan speed: {error}"
+
+        Examples:
+            >>> commander = IPMICommander("config.yaml")
+            >>> commander.set_manual_mode()
+            >>> # Set chassis fans to 50%
+            >>> commander.set_fan_speed(50, zone="chassis")
+            >>> # Set CPU fan to 75%
+            >>> commander.set_fan_speed(75, zone="cpu")
         """
         if not 0 <= speed_percent <= 100:
             raise ValueError("Fan speed must be between 0 and 100")
@@ -440,10 +561,32 @@ class IPMICommander:
         logger.info(f"{zone.title()} fan speed set to {speed_percent}%")
 
     def get_sensor_readings(self) -> List[Dict[str, Union[str, float, int]]]:
-        """Get temperature sensor readings
+        """Get temperature and fan sensor readings from BMC.
+
+        This method retrieves all sensor readings using the "sdr list" command and parses
+        the output into structured data. It handles various sensor formats:
+        - Temperature sensors (°C)
+        - Fan speed sensors (RPM)
+        - State sensors (ok, cr, ns)
+
+        The method also tracks IPMI response IDs to detect potential communication issues
+        and handles various edge cases like missing readings or invalid values.
 
         Returns:
-            List of sensor readings with name, value, state and response ID
+            List[Dict[str, Union[str, float, int]]]: List of sensor readings, each containing:
+                - name (str): Sensor name (e.g., "CPU1 Temp", "FAN1")
+                - value (float|None): Sensor value or None if no reading
+                - state (str): Sensor state ("ok", "cr", or "ns")
+                - response_id (int|None): IPMI response ID or None
+
+        Examples:
+            >>> commander = IPMICommander("config.yaml")
+            >>> readings = commander.get_sensor_readings()
+            >>> for r in readings:
+            ...     if r["name"].startswith("CPU") and r["value"]:
+            ...         print(f"{r['name']}: {r['value']}°C ({r['state']})")
+            CPU1 Temp: 45.0°C (ok)
+            CPU2 Temp: 47.0°C (ok)
         """
         output = self._execute_ipmi_command("sdr list")
         readings = []
@@ -494,14 +637,31 @@ class IPMICommander:
         return readings
 
     def verify_fan_speed(self, target_speed: int, tolerance: int = 10) -> bool:
-        """Verify fan speeds are near the target value
+        """Verify that fan speeds are operating within expected ranges.
+
+        This method checks if fans are operating correctly after a speed change by:
+        1. Getting current fan readings
+        2. Mapping target speed to board-specific speed steps
+        3. Verifying fan RPMs against expected ranges
+        4. Checking minimum working fan requirements
+
+        The verification process is board-specific:
+        - H12 boards use fixed speed steps (12.5%, 25%, 37.5%, 100%)
+        - Other boards use continuous speed range (5-100%)
 
         Args:
-            target_speed: Target speed percentage
-            tolerance: Acceptable percentage deviation
+            target_speed: Target fan speed percentage (0-100)
+            tolerance: Acceptable percentage deviation from expected RPM (default: 10)
 
         Returns:
-            True if fans are operating within tolerance
+            bool: True if fans are operating within tolerance and minimum count is met
+
+        Examples:
+            >>> commander = IPMICommander("config.yaml")
+            >>> commander.set_manual_mode()
+            >>> commander.set_fan_speed(50, zone="chassis")
+            >>> if not commander.verify_fan_speed(50):
+            ...     commander.set_auto_mode()  # Revert on verification failure
         """
         readings = self.get_sensor_readings()
         fan_readings = [r for r in readings if r["name"].startswith("FAN")]

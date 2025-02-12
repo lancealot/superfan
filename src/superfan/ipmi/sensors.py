@@ -18,7 +18,28 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SensorReading:
-    """Represents a temperature sensor reading"""
+    """Represents a temperature or fan speed sensor reading.
+
+    This class encapsulates a sensor reading with metadata including:
+    - Sensor name and value
+    - Timestamp for age tracking
+    - State information (ok, critical, no reading)
+    - IPMI response ID for communication validation
+
+    Attributes:
+        name: Sensor identifier (e.g., "CPU1 Temp", "FAN1")
+        value: Sensor reading value (temperature in °C or fan speed in RPM)
+        timestamp: Unix timestamp when reading was taken
+        state: Sensor state ("ok", "cr" for critical, "ns" for no reading)
+        response_id: Optional IPMI response ID for tracking communication
+
+    Examples:
+        >>> reading = SensorReading("CPU1 Temp", 45.0, time.time(), "ok")
+        >>> print(f"{reading.name}: {reading.value}°C")
+        CPU1 Temp: 45.0°C
+        >>> if reading.is_critical:
+        ...     print("Temperature critical!")
+    """
     name: str
     value: float
     timestamp: float
@@ -27,21 +48,53 @@ class SensorReading:
 
     @property
     def age(self) -> float:
-        """Get age of reading in seconds"""
+        """Get age of reading in seconds.
+
+        Returns:
+            float: Time elapsed since reading was taken
+        """
         return time.time() - self.timestamp
 
     @property
     def is_critical(self) -> bool:
-        """Check if sensor is in critical state"""
+        """Check if sensor is in critical state.
+
+        Returns:
+            bool: True if state is "cr" (critical)
+        """
         return self.state == 'cr'
 
     @property
     def is_valid(self) -> bool:
-        """Check if sensor reading is valid"""
+        """Check if sensor reading is valid.
+
+        A reading is considered valid if:
+        1. State is not "ns" (no reading)
+        2. Value is not None
+
+        Returns:
+            bool: True if reading is valid
+        """
         return self.state != 'ns' and self.value is not None
 
 class NVMETemperatureReader:
-    """Manages NVMe drive temperature monitoring"""
+    """Manages NVMe drive temperature monitoring.
+
+    This class handles:
+    1. NVMe drive discovery using nvme-cli
+    2. Temperature reading via smart-log
+    3. Reading history and statistics
+    4. Timeout and validation
+
+    The reader maintains a history of readings for each drive to:
+    - Calculate statistics (min, max, avg)
+    - Track reading validity
+    - Handle timeouts
+    - Detect trends
+
+    Note:
+        Requires nvme-cli package and sudo access for NVMe commands
+    """
     
     def __init__(self, reading_timeout: float = 30.0, min_readings: int = 2):
         """Initialize NVMe temperature reader
@@ -57,7 +110,20 @@ class NVMETemperatureReader:
         self._discover_nvme_drives()
         
     def _discover_nvme_drives(self) -> None:
-        """Discover available NVMe drives"""
+        """Discover available NVMe drives using nvme-cli.
+
+        This method uses the 'nvme list' command to find all NVMe drives in the system.
+        Drive paths are stored in self.drives for temperature monitoring.
+
+        Note:
+            - Requires sudo access for nvme-cli commands
+            - Silently handles errors by setting empty drive list
+            - Logs discovery results at INFO level
+
+        Example drive paths:
+            - /dev/nvme0n1
+            - /dev/nvme1n1
+        """
         try:
             result = subprocess.run(
                 ["sudo", "nvme", "list"],
@@ -81,7 +147,26 @@ class NVMETemperatureReader:
             self.drives = []
     
     def update_readings(self) -> None:
-        """Update temperature readings for all NVMe drives"""
+        """Update temperature readings for all NVMe drives.
+
+        For each discovered drive:
+        1. Retrieves smart-log data using nvme-cli
+        2. Parses temperature value from output
+        3. Creates new SensorReading with current timestamp
+        4. Adds to reading history
+        5. Removes readings older than timeout
+
+        Note:
+            - Handles various temperature output formats
+            - Skips drives with parsing errors
+            - Maintains reading history for statistics
+            - Logs errors at WARNING level
+
+        Example smart-log output:
+            Smart Log for NVME device:nvme0n1 namespace-id:ffffffff
+            temperature                         : 38 C
+            available_spare                     : 100%
+        """
         current_time = time.time()
         
         for drive in self.drives:
@@ -131,14 +216,34 @@ class NVMETemperatureReader:
                 logger.error(f"Failed to get temperature for {drive}: {e}")
     
     def get_sensor_stats(self, sensor_name: str) -> Optional[Dict[str, float]]:
-        """Get statistics for a specific NVMe drive
-        
+        """Get statistics for a specific NVMe drive.
+
+        Calculates statistics from valid readings within timeout period:
+        - current: Most recent temperature
+        - min: Lowest temperature
+        - max: Highest temperature
+        - avg: Average temperature
+        - stdev: Standard deviation (if >1 reading)
+
         Args:
-            sensor_name: Name of the sensor (NVMe_nvme[X]n1)
-            
+            sensor_name: Drive sensor name (e.g., "NVMe_nvme0n1")
+
         Returns:
-            Dictionary with current, min, max, and average values,
-            or None if insufficient valid readings
+            Dict[str, float]: Statistics dictionary with keys:
+                - "current": Latest temperature (°C)
+                - "min": Minimum temperature (°C)
+                - "max": Maximum temperature (°C)
+                - "avg": Average temperature (°C)
+                - "stdev": Standard deviation (if >1 reading)
+            None: If insufficient valid readings or sensor not found
+
+        Example:
+            >>> stats = reader.get_sensor_stats("NVMe_nvme0n1")
+            >>> if stats:
+            ...     print(f"Current: {stats['current']}°C")
+            ...     print(f"Range: {stats['min']}-{stats['max']}°C")
+            Current: 38.0°C
+            Range: 35.0-42.0°C
         """
         if sensor_name not in self._readings:
             return None
@@ -164,10 +269,31 @@ class NVMETemperatureReader:
         return stats
         
     def get_all_stats(self) -> Dict[str, Dict[str, float]]:
-        """Get statistics for all NVMe drives
-        
+        """Get statistics for all NVMe drives.
+
+        Collects statistics for all drives with valid readings:
+        - Skips drives with insufficient readings
+        - Uses same format as get_sensor_stats()
+
         Returns:
-            Dictionary mapping drive names to their statistics
+            Dict[str, Dict[str, float]]: Dictionary mapping drive names to their statistics:
+                {
+                    "NVMe_nvme0n1": {
+                        "current": 38.0,
+                        "min": 35.0,
+                        "max": 42.0,
+                        "avg": 37.5,
+                        "stdev": 1.2
+                    },
+                    ...
+                }
+
+        Example:
+            >>> stats = reader.get_all_stats()
+            >>> for drive, drive_stats in stats.items():
+            ...     print(f"{drive}: {drive_stats['current']}°C")
+            NVMe_nvme0n1: 38.0°C
+            NVMe_nvme1n1: 42.0°C
         """
         stats = {}
         for sensor_name in self._readings.keys():
@@ -177,10 +303,18 @@ class NVMETemperatureReader:
         return stats
         
     def get_sensor_names(self) -> Set[str]:
-        """Get the set of NVMe sensor names
-        
+        """Get the set of NVMe sensor names.
+
+        Returns a set of all discovered NVMe drive sensor names. Each name follows
+        the format "NVMe_nvme[X]n1" where X is the drive number (0, 1, etc.).
+
         Returns:
-            Set of sensor names (NVMe_nvme[X]n1)
+            Set[str]: Set of sensor names in format "NVMe_nvme[X]n1"
+
+        Example:
+            >>> names = reader.get_sensor_names()
+            >>> print(sorted(names))
+            ['NVMe_nvme0n1', 'NVMe_nvme1n1']
         """
         return set(self._readings.keys())
 
@@ -220,7 +354,24 @@ class SensorReader:
             self._discover_sensors()
 
     def _discover_sensors(self) -> None:
-        """Discover available temperature sensors matching patterns"""
+        """Discover available temperature sensors matching patterns.
+
+        This method:
+        1. Gets all sensor readings from IPMI
+        2. Filters for temperature sensors
+        3. If no patterns specified, includes all temperature sensors
+        4. Otherwise matches sensors against provided glob patterns
+        5. Stores matched sensor names for monitoring
+
+        Note:
+            - Case-insensitive pattern matching
+            - Supports glob patterns (*, ?)
+            - Logs discovery process at DEBUG level
+            - Logs final sensor list at INFO level
+
+        Raises:
+            IPMIError: If sensor discovery fails
+        """
         try:
             readings = self.commander.get_sensor_readings()
             # Filter for temperature sensors first
@@ -250,7 +401,29 @@ class SensorReader:
             raise
 
     def update_readings(self) -> None:
-        """Update temperature readings for all monitored sensors"""
+        """Update temperature readings for all monitored sensors.
+
+        This method:
+        1. Gets current sensor readings from IPMI
+        2. Processes each reading for monitored sensors
+        3. Creates SensorReading objects with timestamps
+        4. Maintains reading history for each sensor
+        5. Removes readings older than timeout
+        6. Tracks and reports critical temperature alerts
+
+        Note:
+            - Logs raw readings at DEBUG level
+            - Logs critical alerts at ERROR level
+            - Validates IPMI response IDs
+            - Handles sensor state transitions
+            - Maintains reading history for statistics
+
+        Raises:
+            IPMIError: If reading update fails:
+                - Connection errors
+                - Command failures
+                - Response validation errors
+        """
         try:
             current_time = time.time()
             readings = self.commander.get_sensor_readings()
@@ -331,14 +504,39 @@ class SensorReader:
             raise
 
     def get_sensor_stats(self, sensor_name: str) -> Optional[Dict[str, float]]:
-        """Get statistics for a specific sensor
+        """Get statistics for a specific temperature sensor.
+
+        Calculates statistics from valid readings within timeout period:
+        - current: Most recent temperature
+        - min: Lowest temperature
+        - max: Highest temperature
+        - avg: Average temperature
+        - stdev: Standard deviation (if >1 reading)
+
+        The method filters readings based on:
+        1. Age (within reading_timeout)
+        2. Validity (state != 'ns' and value is not None)
+        3. Count (>= min_readings)
 
         Args:
-            sensor_name: Name of the sensor
+            sensor_name: Name of the temperature sensor (e.g., "CPU1 Temp")
 
         Returns:
-            Dictionary with current, min, max, and average values,
-            or None if insufficient valid readings
+            Dict[str, float]: Statistics dictionary with keys:
+                - "current": Latest temperature (°C)
+                - "min": Minimum temperature (°C)
+                - "max": Maximum temperature (°C)
+                - "avg": Average temperature (°C)
+                - "stdev": Standard deviation (if >1 reading)
+            None: If insufficient valid readings or sensor not found
+
+        Example:
+            >>> stats = reader.get_sensor_stats("CPU1 Temp")
+            >>> if stats:
+            ...     print(f"Current: {stats['current']}°C")
+            ...     print(f"Range: {stats['min']}-{stats['max']}°C")
+            Current: 45.0°C
+            Range: 42.0-48.0°C
         """
         if sensor_name not in self._readings:
             logger.debug(f"No readings found for sensor {sensor_name}")
@@ -371,10 +569,39 @@ class SensorReader:
         return stats
 
     def get_all_stats(self) -> Dict[str, Dict[str, float]]:
-        """Get statistics for all monitored sensors
+        """Get statistics for all monitored temperature sensors.
+
+        Collects statistics for all sensors with valid readings:
+        - Skips sensors with insufficient readings
+        - Uses same format as get_sensor_stats()
+        - Includes only sensors in sensor_names set
 
         Returns:
-            Dictionary mapping sensor names to their statistics
+            Dict[str, Dict[str, float]]: Dictionary mapping sensor names to their statistics:
+                {
+                    "CPU1 Temp": {
+                        "current": 45.0,
+                        "min": 42.0,
+                        "max": 48.0,
+                        "avg": 44.5,
+                        "stdev": 1.2
+                    },
+                    "CPU2 Temp": {
+                        "current": 47.0,
+                        "min": 44.0,
+                        "max": 49.0,
+                        "avg": 46.5,
+                        "stdev": 1.1
+                    },
+                    ...
+                }
+
+        Example:
+            >>> stats = reader.get_all_stats()
+            >>> for sensor, sensor_stats in stats.items():
+            ...     print(f"{sensor}: {sensor_stats['current']}°C")
+            CPU1 Temp: 45.0°C
+            CPU2 Temp: 47.0°C
         """
         stats = {}
         for sensor_name in self.sensor_names:
@@ -384,10 +611,29 @@ class SensorReader:
         return stats
 
     def get_highest_temperature(self) -> Optional[float]:
-        """Get the highest current temperature across all sensors
+        """Get the highest current temperature across all monitored sensors.
+
+        This method:
+        1. Gets statistics for each monitored sensor
+        2. Extracts current temperature values
+        3. Returns the maximum temperature found
+
+        Note:
+            - Only considers sensors with valid readings
+            - Uses get_sensor_stats() for each sensor
+            - Skips sensors with insufficient readings
+            - Returns None if no valid readings found
 
         Returns:
-            Highest temperature value, or None if no valid readings
+            float: Highest current temperature in °C
+            None: If no valid readings available
+
+        Example:
+            >>> reader = SensorReader(commander)
+            >>> max_temp = reader.get_highest_temperature()
+            >>> if max_temp is not None:
+            ...     print(f"Highest temperature: {max_temp}°C")
+            Highest temperature: 48.5°C
         """
         current_temps = []
         
@@ -399,10 +645,29 @@ class SensorReader:
         return max(current_temps) if current_temps else None
 
     def get_average_temperature(self) -> Optional[float]:
-        """Get the average temperature across all sensors
+        """Get the average temperature across all monitored sensors.
+
+        This method:
+        1. Gets statistics for each monitored sensor
+        2. Extracts current temperature values
+        3. Returns the mean temperature
+
+        Note:
+            - Only considers sensors with valid readings
+            - Uses get_sensor_stats() for each sensor
+            - Skips sensors with insufficient readings
+            - Returns None if no valid readings found
 
         Returns:
-            Average temperature value, or None if no valid readings
+            float: Average current temperature in °C
+            None: If no valid readings available
+
+        Example:
+            >>> reader = SensorReader(commander)
+            >>> avg_temp = reader.get_average_temperature()
+            >>> if avg_temp is not None:
+            ...     print(f"Average temperature: {avg_temp:.1f}°C")
+            Average temperature: 46.5°C
         """
         current_temps = []
         
@@ -414,27 +679,67 @@ class SensorReader:
         return mean(current_temps) if current_temps else None
 
     def get_sensor_names(self) -> Set[str]:
-        """Get the set of monitored sensor names
+        """Get the set of monitored temperature sensor names.
+
+        Returns a copy of the sensor names set to prevent modification.
+        Only includes sensors that were discovered and matched any
+        provided patterns during initialization.
 
         Returns:
-            Set of sensor names
+            Set[str]: Set of monitored sensor names (e.g., "CPU1 Temp", "System Temp")
+
+        Example:
+            >>> reader = SensorReader(commander)
+            >>> names = reader.get_sensor_names()
+            >>> print(sorted(names))
+            ['CPU1 Temp', 'CPU2 Temp', 'System Temp']
         """
         return self.sensor_names.copy()
 
 class CombinedTemperatureReader:
-    """Combines IPMI and NVMe temperature monitoring"""
+    """Combines IPMI and NVMe temperature monitoring.
+
+    This class provides a unified interface for monitoring temperatures from:
+    1. IPMI sensors (CPU, System, etc.)
+    2. NVMe drive smart-log data
+
+    The reader maintains separate SensorReader instances for each source
+    but provides combined access through common methods. This allows for:
+    - Consistent statistics calculation
+    - Unified temperature monitoring
+    - Source-agnostic temperature thresholds
+    - Combined temperature reporting
+
+    Example:
+        >>> reader = CombinedTemperatureReader(commander)
+        >>> reader.update_readings()
+        >>> stats = reader.get_all_stats()
+        >>> for sensor, sensor_stats in stats.items():
+        ...     print(f"{sensor}: {sensor_stats['current']}°C")
+        CPU1 Temp: 45.0°C
+        NVMe_nvme0n1: 38.0°C
+    """
     
     def __init__(self, commander: IPMICommander,
                  sensor_patterns: Optional[List[str]] = None,
                  reading_timeout: float = 30.0,
                  min_readings: int = 2):
-        """Initialize combined temperature reader
-        
+        """Initialize combined temperature reader.
+
+        Creates separate readers for IPMI and NVMe temperature sources
+        with shared configuration parameters.
+
         Args:
             commander: IPMICommander instance for IPMI communication
-            sensor_patterns: List of sensor name patterns to monitor
-            reading_timeout: Maximum age in seconds for valid readings
-            min_readings: Minimum number of valid readings required
+            sensor_patterns: List of sensor name patterns to monitor (e.g., ["CPU*", "System*"])
+                           None to monitor all temperature sensors
+            reading_timeout: Maximum age in seconds for valid readings (default: 30.0)
+            min_readings: Minimum number of valid readings required for statistics (default: 2)
+
+        Note:
+            - IPMI sensors are filtered by patterns if provided
+            - NVMe drives are always monitored if present
+            - Both readers use the same timeout and min_readings values
         """
         self.ipmi_reader = SensorReader(
             commander,
@@ -448,29 +753,91 @@ class CombinedTemperatureReader:
         )
         
     def update_readings(self) -> None:
-        """Update temperature readings from all sources"""
+        """Update temperature readings from all monitored sources.
+
+        This method:
+        1. Updates IPMI sensor readings via IPMICommander
+        2. Updates NVMe drive readings via nvme-cli
+        3. Maintains reading history for both sources
+        4. Handles timeouts and validation
+
+        Note:
+            - Both readers operate independently
+            - Errors in one reader don't affect the other
+            - Each reader handles its own error logging
+        """
         self.ipmi_reader.update_readings()
         self.nvme_reader.update_readings()
         
     def get_sensor_stats(self, sensor_name: str) -> Optional[Dict[str, float]]:
-        """Get statistics for a specific sensor
-        
+        """Get statistics for a specific temperature sensor.
+
+        Routes the request to the appropriate reader based on sensor name:
+        - NVMe sensors (prefixed with "NVMe_") -> NVMETemperatureReader
+        - All other sensors -> SensorReader
+
         Args:
-            sensor_name: Name of the sensor
-            
+            sensor_name: Name of the sensor (e.g., "CPU1 Temp" or "NVMe_nvme0n1")
+
         Returns:
-            Dictionary with current, min, max, and average values,
-            or None if insufficient valid readings
+            Dict[str, float]: Statistics dictionary with keys:
+                - "current": Latest temperature (°C)
+                - "min": Minimum temperature (°C)
+                - "max": Maximum temperature (°C)
+                - "avg": Average temperature (°C)
+                - "stdev": Standard deviation (if >1 reading)
+            None: If insufficient valid readings or sensor not found
+
+        Example:
+            >>> reader = CombinedTemperatureReader(commander)
+            >>> stats = reader.get_sensor_stats("CPU1 Temp")
+            >>> if stats:
+            ...     print(f"Current: {stats['current']}°C")
+            Current: 45.0°C
+            >>> nvme_stats = reader.get_sensor_stats("NVMe_nvme0n1")
+            >>> if nvme_stats:
+            ...     print(f"Current: {nvme_stats['current']}°C")
+            Current: 38.0°C
         """
         if sensor_name.startswith("NVMe_"):
             return self.nvme_reader.get_sensor_stats(sensor_name)
         return self.ipmi_reader.get_sensor_stats(sensor_name)
         
     def get_all_stats(self) -> Dict[str, Dict[str, float]]:
-        """Get statistics for all sensors
-        
+        """Get statistics for all monitored temperature sensors.
+
+        Combines statistics from both IPMI and NVMe sources:
+        1. Gets statistics from IPMI sensors
+        2. Gets statistics from NVMe drives
+        3. Merges results into a single dictionary
+
         Returns:
-            Dictionary mapping sensor names to their statistics
+            Dict[str, Dict[str, float]]: Dictionary mapping sensor names to their statistics:
+                {
+                    "CPU1 Temp": {
+                        "current": 45.0,
+                        "min": 42.0,
+                        "max": 48.0,
+                        "avg": 44.5,
+                        "stdev": 1.2
+                    },
+                    "NVMe_nvme0n1": {
+                        "current": 38.0,
+                        "min": 35.0,
+                        "max": 42.0,
+                        "avg": 37.5,
+                        "stdev": 1.1
+                    },
+                    ...
+                }
+
+        Example:
+            >>> reader = CombinedTemperatureReader(commander)
+            >>> stats = reader.get_all_stats()
+            >>> for sensor, sensor_stats in sorted(stats.items()):
+            ...     print(f"{sensor}: {sensor_stats['current']}°C")
+            CPU1 Temp: 45.0°C
+            NVMe_nvme0n1: 38.0°C
         """
         stats = {}
         stats.update(self.ipmi_reader.get_all_stats())
@@ -478,20 +845,48 @@ class CombinedTemperatureReader:
         return stats
         
     def get_sensor_names(self) -> Set[str]:
-        """Get the set of all monitored sensor names
-        
+        """Get the set of all monitored temperature sensor names.
+
+        Combines sensor names from both IPMI and NVMe sources into a single set.
+        IPMI sensors have standard names (e.g., "CPU1 Temp") while NVMe sensors
+        are prefixed with "NVMe_" (e.g., "NVMe_nvme0n1").
+
         Returns:
-            Set of sensor names
+            Set[str]: Combined set of all monitored sensor names
+
+        Example:
+            >>> reader = CombinedTemperatureReader(commander)
+            >>> names = reader.get_sensor_names()
+            >>> print(sorted(names))
+            ['CPU1 Temp', 'CPU2 Temp', 'NVMe_nvme0n1', 'System Temp']
         """
         names = self.ipmi_reader.get_sensor_names()
         names.update(self.nvme_reader.get_sensor_names())
         return names
         
     def get_highest_temperature(self) -> Optional[float]:
-        """Get the highest current temperature across all sensors
-        
+        """Get the highest current temperature across all monitored sensors.
+
+        Finds the maximum temperature from both IPMI and NVMe sources:
+        1. Gets statistics for all sensors
+        2. Extracts current temperature values
+        3. Returns the highest value found
+
+        Note:
+            - Only considers sensors with valid readings
+            - Skips sensors with insufficient readings
+            - Returns None if no valid readings found
+
         Returns:
-            Highest temperature value, or None if no valid readings
+            float: Highest current temperature in °C
+            None: If no valid readings available
+
+        Example:
+            >>> reader = CombinedTemperatureReader(commander)
+            >>> max_temp = reader.get_highest_temperature()
+            >>> if max_temp is not None:
+            ...     print(f"Highest temperature: {max_temp}°C")
+            Highest temperature: 48.5°C
         """
         all_stats = self.get_all_stats()
         if not all_stats:
@@ -499,10 +894,28 @@ class CombinedTemperatureReader:
         return max(stats["current"] for stats in all_stats.values())
         
     def get_average_temperature(self) -> Optional[float]:
-        """Get the average temperature across all sensors
-        
+        """Get the average temperature across all monitored sensors.
+
+        Calculates the mean temperature from both IPMI and NVMe sources:
+        1. Gets statistics for all sensors
+        2. Extracts current temperature values
+        3. Returns the mean value
+
+        Note:
+            - Only considers sensors with valid readings
+            - Skips sensors with insufficient readings
+            - Returns None if no valid readings found
+
         Returns:
-            Average temperature value, or None if no valid readings
+            float: Average current temperature in °C
+            None: If no valid readings available
+
+        Example:
+            >>> reader = CombinedTemperatureReader(commander)
+            >>> avg_temp = reader.get_average_temperature()
+            >>> if avg_temp is not None:
+            ...     print(f"Average temperature: {avg_temp:.1f}°C")
+            Average temperature: 42.5°C
         """
         all_stats = self.get_all_stats()
         if not all_stats:
