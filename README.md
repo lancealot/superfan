@@ -8,7 +8,10 @@ A Python utility for intelligent control of Supermicro server fan speeds based o
 - NVMe drive temperature monitoring via nvme-cli
 - Support for multiple Supermicro generations:
   * X9/X10/X11/X13 series with full fan control
-  * H12 series with automatic mode and monitoring
+  * H12 series with optimized fan control:
+    - High RPM fans (FAN1, FAN5): 980-1820 RPM
+    - Low RPM fans (FAN2-4): 700-1400 RPM
+    - CPU fan (FANA): 2520-3640 RPM
   * Robust board detection via DMI and IPMI info
 - Zone-based fan control:
   * Chassis fan zone (FAN1-5 controlled as a group)

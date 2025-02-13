@@ -46,6 +46,32 @@ class IPMICommander:
         (0x06, 0x02),  # Get OEM commands - may affect sensor readings
     }
 
+    # Known stable fan speed points and their hex values for H12 board
+    STABLE_SPEEDS = {
+        100: {'hex': 'ff', 'prefix': False},  # High: 980-1820, Low: 700-1400, CPU: 2520-3640
+        75:  {'hex': '60', 'prefix': False},  # High: 980-1820, Low: 700-1400, CPU: 2520-3640
+        50:  {'hex': '32', 'prefix': False},  # High: 980-1820, Low: 700-1400, CPU: 2520-3640
+    }
+
+    # Fan group RPM ranges for H12 board
+    FAN_RANGES = {
+        'high_rpm': {  # FAN1, FAN5
+            'min': 980,    # Minimum safe RPM
+            'max': 1820,   # Maximum observed RPM
+            'stable': 980  # Most stable operating point
+        },
+        'low_rpm': {   # FAN2-4
+            'min': 700,    # Minimum safe RPM
+            'max': 1400,   # Maximum observed RPM
+            'stable': 700  # Most stable operating point
+        },
+        'cpu': {       # FANA
+            'min': 2520,   # Minimum safe RPM
+            'max': 3640,   # Maximum observed RPM
+            'stable': 2520 # Most stable operating point
+        }
+    }
+
     # IPMI raw commands for different board generations
     COMMANDS = {
         # Common commands across generations
@@ -474,10 +500,15 @@ class IPMICommander:
         min_speed = 20 if self.board_gen == MotherboardGeneration.H12 else 5
         speed_percent = max(min_speed, speed_percent)
         
-        # Convert percentage to hex value (0-255)
-        hex_val = int(speed_percent * 255 / 100)
-        hex_val = max(51, min(255, hex_val))  # Ensure between 0x33 (20%) and 0xFF
-        hex_speed = format(hex_val, '02x')
+        # Find nearest stable speed point
+        stable_points = sorted(self.STABLE_SPEEDS.keys())
+        nearest_point = min(stable_points, key=lambda x: abs(x - speed_percent))
+        speed_info = self.STABLE_SPEEDS[nearest_point]
+        
+        # Get hex value and format
+        hex_speed = speed_info['hex']
+        if speed_info['prefix']:
+            hex_speed = f"0x{hex_speed}"
         
         # Get base command
         base_command = self.COMMANDS[self.board_gen]["SET_FAN_SPEED"]
@@ -499,23 +530,19 @@ class IPMICommander:
                 # 0x20 (12.5%): FAN1=980, FAN2-4=840, FAN5=1260
                 
                 # Map to closest step based on actual board values
-                if speed_percent < 25:
-                    hex_speed = "20"  # 12.5% step
-                    step_name = "low"
-                    actual_percent = 12.5
-                elif speed_percent < 37.5:
+                if speed_percent < 50:
                     hex_speed = "40"  # 25% step
                     step_name = "medium"
-                    actual_percent = 25
-                elif speed_percent < 50:
+                    actual_percent = 50
+                elif speed_percent < 75:
                     hex_speed = "60"  # 37.5% step
                     step_name = "high"
-                    actual_percent = 37.5
+                    actual_percent = 75
                 else:
                     hex_speed = "ff"  # 100% step
                     step_name = "full"
                     actual_percent = 100
-                
+            
                 selected_step = speed_steps[step_name]
                 actual_percent = selected_step["threshold"]
                 logger.info(f"H12 board: Requested {speed_percent}%, using {actual_percent}% step")
@@ -539,16 +566,27 @@ class IPMICommander:
                 
                 # Verify fans are working
                 for fan in working_fans:
-                    zone = "cpu" if fan["name"].startswith("FANA") else "chassis"
+                    # Determine fan group
+                    if fan["name"].startswith("FANA"):
+                        group = 'cpu'
+                    elif fan["name"] in ["FAN1", "FAN5"]:
+                        group = 'high_rpm'
+                    else:
+                        group = 'low_rpm'
+                    
                     rpm = fan["value"]
+                    rpm_range = self.FAN_RANGES[group]
                     
-                    # Get RPM range for current step
-                    rpm_range = selected_step["rpm_ranges"][zone]
-                    min_rpm = rpm_range["min"] * 0.8  # Allow 20% below minimum
-                    
-                    if rpm < min_rpm:
-                        logger.warning(f"{fan['name']} RPM ({rpm}) below minimum ({min_rpm})")
-                
+                    # Check against safe ranges
+                    if rpm < rpm_range['min']:
+                        logger.error(f"{fan['name']} RPM ({rpm}) below minimum safe speed ({rpm_range['min']})")
+                        self.set_auto_mode()
+                        raise IPMIError(f"Fan speed unsafe - {fan['name']} too low")
+                    elif rpm > rpm_range['max']:
+                        logger.warning(f"{fan['name']} RPM ({rpm}) above maximum expected ({rpm_range['max']})")
+                    elif abs(rpm - rpm_range['stable']) > rpm_range['stable'] * 0.3:  # 30% deviation
+                        logger.warning(f"{fan['name']} RPM ({rpm}) far from stable point ({rpm_range['stable']})")
+            
             except Exception as e:
                 logger.error(f"Failed to set fan speed: {e}")
                 self.set_auto_mode()

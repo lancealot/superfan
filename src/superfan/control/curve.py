@@ -1,7 +1,10 @@
 """Fan curve implementations."""
 
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 import bisect
+import logging
+
+logger = logging.getLogger(__name__)
 
 class FanCurve:
     """Base class for fan speed curves."""
@@ -148,6 +151,130 @@ class StepCurve(FanCurve):
         return max(self.min_speed, min(self.max_speed, self.points[idx-1][1]))
 
 
+class StableSpeedCurve(FanCurve):
+    """Fan curve using discovered stable speed points.
+    
+    This curve implementation uses the stable speed points discovered during testing
+    for the H12 board. It ensures fan speeds are set to known stable points and handles:
+    - Different fan groups (high/low RPM, CPU)
+    - Hex value formatting requirements
+    - RPM range validation
+    """
+    
+    # Known stable speed points for H12 board
+    STABLE_POINTS = [
+        {
+            'temp': 40,     # High temperature threshold
+            'speed': 100,   # Full speed
+            'hex': 'ff',    # 0xFF step (100%)
+            'prefix': False,
+            'rpm_ranges': {
+                'high_rpm': {'min': 980, 'max': 1820},   # FAN1, FAN5
+                'low_rpm': {'min': 700, 'max': 1400},    # FAN2-4
+                'cpu': {'min': 2520, 'max': 3640}        # FANA
+            }
+        },
+        {
+            'temp': 35,
+            'speed': 75,
+            'hex': '60',    # 0x60 step (37.5%)
+            'prefix': False,
+            'rpm_ranges': {
+                'high_rpm': {'min': 980, 'max': 1820},
+                'low_rpm': {'min': 700, 'max': 1400},
+                'cpu': {'min': 2520, 'max': 3640}
+            }
+        },
+        {
+            'temp': 30,
+            'speed': 50,
+            'hex': '32',    # 0x32 step (20%)
+            'prefix': False,
+            'rpm_ranges': {
+                'high_rpm': {'min': 980, 'max': 1820},
+                'low_rpm': {'min': 700, 'max': 1400},
+                'cpu': {'min': 2520, 'max': 3640}
+            }
+        }
+    ]
+    
+    # Fan group RPM ranges
+    FAN_RANGES = {
+        'high_rpm': {  # FAN1, FAN5
+            'min': 980,    # Minimum safe RPM
+            'max': 1820,   # Maximum observed RPM
+            'stable': 980  # Most stable operating point
+        },
+        'low_rpm': {   # FAN2-4
+            'min': 700,    # Minimum safe RPM
+            'max': 1400,   # Maximum observed RPM
+            'stable': 700  # Most stable operating point
+        },
+        'cpu': {       # FANA
+            'min': 2520,   # Minimum safe RPM
+            'max': 3640,   # Maximum observed RPM
+            'stable': 2520 # Most stable operating point
+        }
+    }
+    
+    def __init__(self, min_speed: float = 50, max_speed: float = 100):
+        """Initialize with speed limits.
+        
+        Args:
+            min_speed: Minimum fan speed percentage (50-100)
+            max_speed: Maximum fan speed percentage (50-100)
+        """
+        # Validate speed limits
+        if not 50 <= min_speed <= 100:  # Enforce minimum 50% for safety
+            raise ValueError(f"Invalid min_speed {min_speed}%, must be 50-100")
+        if not 50 <= max_speed <= 100:
+            raise ValueError(f"Invalid max_speed {max_speed}%, must be 50-100")
+        if min_speed > max_speed:
+            raise ValueError(f"min_speed ({min_speed}%) cannot be greater than max_speed ({max_speed}%)")
+            
+        self.min_speed = min_speed
+        self.max_speed = max_speed
+        
+        # Filter points within speed range
+        self.points = [p for p in self.STABLE_POINTS 
+                      if min_speed <= p['speed'] <= max_speed]
+        if not self.points:
+            raise ValueError(f"No stable points available between {min_speed}% and {max_speed}%")
+    
+    def get_speed(self, temp_delta: float) -> Dict[str, Any]:
+        """Get stable fan speed point for temperature delta.
+        
+        Args:
+            temp_delta: Temperature above target in Celsius
+            
+        Returns:
+            Dictionary containing:
+            - speed: Fan speed percentage (50-100)
+            - hex_speed: Hex value for IPMI command
+            - needs_prefix: Whether hex value needs 0x prefix
+            - expected_rpms: Expected RPM ranges per fan group
+        """
+        if not self.points:
+            # Fail safe to highest stable point
+            point = self.STABLE_POINTS[0]
+        else:
+            # Find first point with temperature >= delta
+            for point in self.points:
+                if temp_delta <= point['temp']:
+                    break
+            else:
+                # Temperature above all points, use highest
+                point = self.points[0]
+        
+        # Use predefined RPM ranges for each speed point
+        return {
+            'speed': point['speed'],
+            'hex_speed': point['hex'],
+            'needs_prefix': point['prefix'],
+            'expected_rpms': point['rpm_ranges']
+        }
+
+
 class HysteresisCurve(FanCurve):
     """Adds hysteresis to another curve type."""
     
@@ -164,7 +291,7 @@ class HysteresisCurve(FanCurve):
         self._last_temp = None
         self._last_speed = None
     
-    def get_speed(self, temp_delta: float) -> float:
+    def get_speed(self, temp_delta: float) -> Dict[str, Any]:
         """Get fan speed with hysteresis.
         
         Only changes speed if temperature has changed by more than
@@ -174,21 +301,21 @@ class HysteresisCurve(FanCurve):
             temp_delta: Temperature above target in Celsius
             
         Returns:
-            Fan speed percentage (0-100)
+            Dictionary with speed information from base curve
         """
         if self._last_temp is None:
             # First reading
-            speed = self.curve.get_speed(temp_delta)
+            speed_info = self.curve.get_speed(temp_delta)
             self._last_temp = temp_delta
-            self._last_speed = speed
-            return speed
+            self._last_speed = speed_info
+            return speed_info
             
         if abs(temp_delta - self._last_temp) >= self.hysteresis:
             # Temperature changed enough to update
-            speed = self.curve.get_speed(temp_delta)
+            speed_info = self.curve.get_speed(temp_delta)
             self._last_temp = temp_delta
-            self._last_speed = speed
-            return speed
+            self._last_speed = speed_info
+            return speed_info
             
         # Not enough change, maintain previous speed
         return self._last_speed

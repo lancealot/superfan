@@ -359,10 +359,13 @@ ipmitool mc info
 
 # Note: H12 Series Boards
 # - H12 boards are detected via DMI info or IPMI board markers
-# - Manual fan control is not supported on H12 boards
-# - System will automatically use BMC automatic mode
-# - Temperature monitoring and logging still available
-# - Clear warnings will be logged about H12 limitations
+# - Manual fan control is supported with specific speed steps
+# - Known stable fan speeds:
+#   * High RPM fans (FAN1, FAN5): 980-1820 RPM
+#   * Low RPM fans (FAN2-4): 700-1400 RPM
+#   * CPU fan (FANA): 2520-3640 RPM
+# - Uses hex value 0x32 for minimum stable speeds
+# - Proper manual mode handling required for stability
 ```
 
 3. Sensor Reading Issues

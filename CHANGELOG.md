@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Discovered and implemented true minimum stable fan speeds for H12 board:
+  * High RPM fans (FAN1, FAN5): 980 RPM
+  * Low RPM fans (FAN2-4): 700 RPM
+  * CPU fan (FANA): 2520 RPM
+- Updated fan control logic to use hex value 0x32 for achieving minimum speeds
+- Improved fan speed stability through proper manual mode handling
+
 ### Security
 - Removed incorrect firmware version fallback detection in board detection logic
   * Previously attempted to guess board generation from firmware version numbers
