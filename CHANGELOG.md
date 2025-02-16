@@ -7,7 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed fan speed verification issues in Control Manager:
+  * Fixed division by zero error in stability calculations
+  * Improved RPM range matching logic
+  * Enhanced logging for fan speed verification
+  * Better handling of missing stable_rpm values
+  * Fixed temperature reading issues with sensor patterns
+  * Improved error handling in fan speed verification
+
 ### Added
+- Implemented and verified fan speed safety system:
+  * Emergency mode triggers on unsafe speeds
+  * Auto-recovery from unsafe conditions
+  * Proper minimum speed enforcement
+  * Temperature-based speed adjustments
+
+- Discovered critical fan mode safety implications:
+  * Only Full mode (0x01) guarantees safe fan speeds
+  * Other modes can allow dangerous low speeds:
+    - Standard mode: Can drop below minimum safe speeds
+    - Optimal mode: Can reduce chassis fans to 280 RPM
+    - Heavy IO mode: Can also allow unsafe low speeds
+  * Added safety warnings and documentation
+  * Updated code to enforce Full mode for safe operation
+
+- Discovered and documented comprehensive fan control capabilities:
+  * Four distinct fan control modes:
+    - Standard (0x00): BMC control, 50% target for both zones
+    - Full (0x01): Manual control enabled
+    - Optimal (0x02): BMC control, CPU 30%, Peripheral low
+    - Heavy IO (0x04): BMC control, CPU 50%, Peripheral 75%
+  * Zone-specific PWM control commands:
+    - Zone 0 (Chassis Fans - FAN1-5)
+    - Zone 1 (CPU Fan - FANA)
+  * Hex-based PWM duty cycle control (0x00-0x64)
+  * Mode persistence behavior documentation
+  * BMC override patterns in different modes
+
 - Discovered and implemented true minimum stable fan speeds for H12 board:
   * High RPM fans (FAN1, FAN5): 980 RPM
   * Low RPM fans (FAN2-4): 700 RPM

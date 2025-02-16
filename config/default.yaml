@@ -21,47 +21,143 @@ fans:
   # Board-specific parameters (populated by learning phase)
   board_config:
     # Default values for new installations
-    min_speed: 20          # Minimum safe fan speed
+    min_speed: 0           # Let learning phase discover true minimum
     max_speed: 100         # Maximum fan speed
     
     # Fan speed steps and RPM ranges (populated during learning)
     speed_steps:           # H12 board speed steps
-      low:
-        threshold: 12.5    # 0x20 step (12.5%)
+      off:                 # 0x00 step (0%)
+        threshold: 0
+        hex_speed: "0x00"
+        needs_prefix: false
         rpm_ranges:
           chassis:
-            min: 840      # FAN2-4 at 0x20
-            max: 980      # FAN1 at 0x20
+            high_rpm:
+              min: 840
+              max: 1120
+              stable_rpm: 980
+              avg: 980
+            low_rpm:
+              min: 700
+              max: 980
+              stable_rpm: 840
+              avg: 840
           cpu:
-            min: 1960     # FANA at 0x20
-            max: 2100     # Max at 0x20
-      medium:
-        threshold: 25      # 0x40 step (25%)
+            cpu:
+              min: 2940
+              max: 3640
+              stable_rpm: 3290
+              avg: 3290
+      very_low:           # 0x10 step (12%)
+        threshold: 12
+        hex_speed: "0x10"
+        needs_prefix: false
         rpm_ranges:
           chassis:
-            min: 980      # FAN2-4 at 0x40
-            max: 1260     # FAN1/5 at 0x40
+            high_rpm:
+              min: 1400
+              max: 1900  # Increased to allow for variation
+              stable_rpm: 1750
+              avg: 1750
+            low_rpm:
+              min: 1260
+              max: 1500  # Increased to allow for variation
+              stable_rpm: 1400
+              avg: 1400
           cpu:
-            min: 2940     # FANA at 0x40
-            max: 3100     # Max at 0x40
-      high:
-        threshold: 37.5    # 0x60 step (37.5%)
+            cpu:
+              min: 3290
+              max: 3640
+              stable_rpm: 3640
+              avg: 3640
+      low:                # 0x20 step (25%)
+        threshold: 25
+        hex_speed: "0x20"
+        needs_prefix: false
         rpm_ranges:
           chassis:
-            min: 1400     # FAN2-4 at 0x60
-            max: 1820     # FAN5 at 0x60
+            high_rpm:
+              min: 1680
+              max: 1820
+              stable_rpm: 1750
+              avg: 1750
+            low_rpm:
+              min: 1400
+              max: 1400
+              stable_rpm: 1400
+              avg: 1400
           cpu:
-            min: 3500     # FANA at 0x60
-            max: 3640     # Max at 0x60
-      full:
-        threshold: 100     # 0xFF step (100%)
+            cpu:
+              min: 3640
+              max: 3640
+              stable_rpm: 3640
+              avg: 3640
+      medium:             # 0x40 step (50%)
+        threshold: 50
+        hex_speed: "0x40"
+        needs_prefix: false
         rpm_ranges:
           chassis:
-            min: 980      # FAN2-4 at 0xFF
-            max: 1260     # FAN5 at 0xFF
+            high_rpm:
+              min: 1750
+              max: 1820
+              stable_rpm: 1820
+              avg: 1820
+            low_rpm:
+              min: 1400
+              max: 1400
+              stable_rpm: 1400
+              avg: 1400
           cpu:
-            min: 3500     # FANA at 0xFF
-            max: 3640     # Max at 0xFF
+            cpu:
+              min: 3640
+              max: 3640
+              stable_rpm: 3640
+              avg: 3640
+      high:               # 0x60 step (75%)
+        threshold: 75
+        hex_speed: "0x60"
+        needs_prefix: false
+        rpm_ranges:
+          chassis:
+            high_rpm:
+              min: 1820
+              max: 1820
+              stable_rpm: 1820
+              avg: 1820
+            low_rpm:
+              min: 1400
+              max: 1400
+              stable_rpm: 1400
+              avg: 1400
+          cpu:
+            cpu:
+              min: 3640
+              max: 3640
+              stable_rpm: 3640
+              avg: 3640
+      full:               # 0xFF step (100%)
+        threshold: 100
+        hex_speed: "0xff"
+        needs_prefix: false
+        rpm_ranges:
+          chassis:
+            high_rpm:
+              min: 1600
+              max: 1900
+              stable_rpm: 1750
+              avg: 1750
+            low_rpm:
+              min: 1300
+              max: 1500
+              stable_rpm: 1400
+              avg: 1400
+          cpu:
+            cpu:
+              min: 3400
+              max: 3800
+              stable_rpm: 3640
+              avg: 3640
             
     # Temperature response characteristics (populated during learning)
     thermal_response:
@@ -113,23 +209,23 @@ fans:
     chassis:  # Zone 0: Controls FAN1-5 as a group
       enabled: true
       # H12 Fan RPM ranges at different speed steps:
-      # 0xFF (100%):  FAN1=1120, FAN2-4=980, FAN5=1260
-      # 0x60 (37.5%): FAN1=1680, FAN2-4=1400, FAN5=1820
-      # 0x40 (25%):   FAN1=1260, FAN2-4=980, FAN5=1260
-      # 0x20 (12.5%): FAN1=980, FAN2-4=840, FAN5=1260
+      # 0xFF (100%):  FAN1/5=1820, FAN2-4=1400
+      # 0x60 (75%):   FAN1/5=1680, FAN2-4=1400
+      # 0x40 (50%):   FAN1/5=1680, FAN2-4=1400
+      # 0x20 (0%):    Let learning discover minimum
       critical_max: 75  # Emergency threshold - will set fans to 100%
       warning_max: 65   # Warning threshold - will increase fan speed
       target: 55        # Desired operating temperature
       curve:
-        - [0, 20]    # At target temp (55°C)
-        - [5, 40]    # 5°C over target -> 40%
-        - [10, 60]   # 10°C over target -> 60%
-        - [15, 80]   # 15°C over target -> 80%
-        - [20, 100]  # 20°C over target -> 100%
+        - [0, 12]    # At target temp -> minimum stable speed
+        - [5, 25]    # 5°C over target -> low speed
+        - [10, 50]   # 10°C over target -> medium speed
+        - [15, 75]   # 15°C over target -> high speed
+        - [20, 100]  # 20°C over target -> full speed
       # All system temperatures that affect chassis cooling
       sensors:
-        - System Temp
-        - Peripheral Temp
+        - System* Temp*
+        - Peripheral* Temp*
         - P1_DIMM*
         - NVMe_*
         - M2_SSD*
@@ -137,25 +233,25 @@ fans:
     cpu:  # Zone 1: Controls FANA (CPU fan)
       enabled: true
       # H12 CPU fan (FANA) RPM ranges at different speed steps:
-      # 0xFF (100%):  3500 RPM
-      # 0x60 (37.5%): 3640 RPM
-      # 0x40 (25%):   2940 RPM
-      # 0x20 (12.5%): 1960 RPM
+      # 0xFF (100%):  3640 RPM
+      # 0x60 (75%):   3640 RPM
+      # 0x40 (50%):   3640 RPM
+      # 0x20 (0%):    Let learning discover minimum
       critical_max: 85  # Emergency threshold - will set fans to 100%
       warning_max: 75   # Warning threshold - will increase fan speed
       target: 65        # Desired operating temperature
       curve:
-        - [0, 20]    # At target temp (65°C)
-        - [5, 40]    # 5°C over target -> 40%
-        - [10, 60]   # 10°C over target -> 60%
-        - [15, 80]   # 15°C over target -> 80%
-        - [20, 100]  # 20°C over target -> 100%
+        - [0, 12]    # At target temp -> minimum stable speed
+        - [5, 25]    # 5°C over target -> low speed
+        - [10, 50]   # 10°C over target -> medium speed
+        - [15, 75]   # 15°C over target -> high speed
+        - [20, 100]  # 20°C over target -> full speed
       # CPU-specific temperatures
       sensors:
-        - "CPU* Temp"
-        - "*CPU*VRM* Temp"
-        - "*SOC*VRM* Temp"
-        - "*VRM* Temp"
+        - "CPU* Temp*"
+        - "*CPU*VRM* Temp*"
+        - "*SOC*VRM* Temp*"
+        - "*VRM* Temp*"
 
 # Safety Settings
 safety:
@@ -168,7 +264,7 @@ safety:
   
 # Logging Configuration
 logging:
-  level: DEBUG
+  level: INFO  # Only show important messages
   file: superfan.log
   max_size: 10MB
   backup_count: 3

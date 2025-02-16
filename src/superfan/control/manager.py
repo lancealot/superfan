@@ -9,17 +9,19 @@ import logging
 import time
 import threading
 import re
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List, Tuple, Any
 import yaml
 
 from ..ipmi import IPMICommander, IPMIError
 from ..ipmi.sensors import CombinedTemperatureReader
-from .curve import FanCurve, LinearCurve, HysteresisCurve
+from .curve import FanCurve, StableSpeedCurve, HysteresisCurve
 from .learner import FanSpeedLearner
 
 logger = logging.getLogger(__name__)
+
 class ControlManager:
     """Manages fan control loop and safety features"""
+    
     
     def __init__(self, config_path: str, monitor_mode: bool = False, learning_mode: bool = False):
         """Initialize control manager
@@ -27,14 +29,15 @@ class ControlManager:
         Args:
             config_path: Path to YAML configuration file
             monitor_mode: If True, use faster polling interval for monitoring
+            learning_mode: If True, run fan speed learning before control
         """
         # Store configuration and modes
         self.config_path = config_path
         self.monitor_mode = monitor_mode
         self.learning_mode = learning_mode
         
-        # Track current fan speeds to avoid unnecessary updates
-        self.current_speeds = {}
+        # Track current fan speeds and states
+        self.current_speeds: Dict[str, Dict[str, Any]] = {}
         
         # Load configuration
         with open(config_path) as f:
@@ -47,12 +50,11 @@ class ControlManager:
         sensor_patterns = []
         for zone_config in self.config["fans"]["zones"].values():
             if zone_config["enabled"]:
-                # Convert sensor names to patterns
-                for sensor in zone_config["sensors"]:
-                    # Use pattern directly from config
-                    pattern = sensor
-                    sensor_patterns.append(pattern)
+                # Add zone's sensor patterns
+                sensor_patterns.extend(zone_config["sensors"])
+                logger.info(f"Added sensor patterns: {zone_config['sensors']}")
         
+        logger.info(f"Initializing sensor manager with patterns: {sensor_patterns}")
         self.sensor_manager = CombinedTemperatureReader(
             commander=self.commander,
             sensor_patterns=sensor_patterns,
@@ -83,12 +85,8 @@ class ControlManager:
             if not zone_config["enabled"]:
                 continue
                 
-            # Create base curve
-            base_curve = LinearCurve(
-                points=zone_config["curve"],
-                min_speed=fan_config["min_speed"],
-                max_speed=fan_config["max_speed"]
-            )
+            # Create stable speed curve
+            base_curve = StableSpeedCurve(config=self.config)
             
             # Wrap with hysteresis
             self.fan_curves[zone_name] = HysteresisCurve(
@@ -110,6 +108,8 @@ class ControlManager:
         # Get configured sensor patterns for zone
         zone_config = self.config["fans"]["zones"][zone_name]
         base_sensors = zone_config["sensors"]
+        logger.info(f"Getting temperature for zone {zone_name}")
+        logger.debug(f"Base sensors: {base_sensors}")
         
         # Get highest temperature from matching sensors
         highest_temp = None
@@ -117,27 +117,44 @@ class ControlManager:
             # Create pattern for this sensor
             pattern = base_sensor.replace('*', '.*')  # Convert glob to regex
             pattern_re = re.compile(pattern, re.IGNORECASE)
+            logger.debug(f"Using pattern: {pattern}")
             
-            # Check all discovered sensors against this pattern
-            sensor_names = self.sensor_manager.get_sensor_names()
-            logger.debug(f"Checking pattern '{pattern}' against sensors: {list(sensor_names)}")
+            # Get all sensor readings
+            readings = self.commander.get_sensor_readings()
+            temp_readings = [r for r in readings if "temp" in r["name"].lower()]
             
-            for sensor_name in sensor_names:
-                if pattern_re.match(sensor_name):  # Use match to ensure pattern matches from start
-                    logger.debug(f"Pattern '{pattern}' matched sensor '{sensor_name}'")
-                    stats = self.sensor_manager.get_sensor_stats(sensor_name)
-                    if stats:
+            # Check IPMI temperature sensors
+            for reading in temp_readings:
+                if reading["value"] is None or reading["state"] == "ns":
+                    continue
+                    
+                if pattern_re.search(reading["name"]):
+                    temp = reading["value"]
+                    logger.debug(f"Got temperature: {temp}°C from {reading['name']}")
+                    if highest_temp is None or temp > highest_temp:
+                        highest_temp = temp
+                        logger.info(f"New highest temperature {temp}°C from {reading['name']}")
+            
+            # Check NVMe temperatures if pattern matches
+            if "NVMe" in base_sensor:
+                nvme_stats = self.sensor_manager.nvme_reader.get_all_stats()
+                if nvme_stats:
+                    for drive, stats in nvme_stats.items():
                         temp = stats["current"]
+                        logger.debug(f"Got NVMe temperature: {temp}°C from {drive}")
                         if highest_temp is None or temp > highest_temp:
                             highest_temp = temp
-                            logger.debug(f"New highest temperature {temp}°C from {sensor_name}")
+                            logger.info(f"New highest temperature {temp}°C from {drive}")
                     
         if highest_temp is None:
+            logger.warning(f"No valid temperatures found for zone {zone_name}")
             return None
             
         # Calculate delta from zone-specific target
         target_temp = self.config["fans"]["zones"][zone_name]["target"]
-        return max(0, highest_temp - target_temp)
+        delta = max(0, highest_temp - target_temp)
+        logger.info(f"Zone {zone_name}: highest temp {highest_temp}°C, target {target_temp}°C, delta {delta}°C")
+        return delta
 
     def _verify_fan_speeds(self, min_speed: int = None) -> bool:
         """Verify fan speeds are within acceptable range
@@ -156,29 +173,136 @@ class ControlManager:
                 logger.error("No fan readings available")
                 return False
                 
-            min_speed = min_speed or self.config["fans"]["min_speed"]
-            responsive_fans = 0
+            # Group fans by type
+            groups = {
+                'high_rpm': [],
+                'low_rpm': [],
+                'cpu': []
+            }
             
             for fan in fan_readings:
-                name = fan["name"]
-                if fan["state"] == "ns":
-                    logger.debug(f"{name} is not responding")  # Downgrade to debug level
+                if fan["state"] == "ns" or fan["value"] is None:
                     continue
                     
-                rpm = fan["value"]
-                if rpm is None:  # Skip fans with no reading
+                # Determine fan group
+                if fan["name"].startswith("FANA"):
+                    groups['cpu'].append(fan)
+                elif fan["name"] in ["FAN1", "FAN5"]:
+                    groups['high_rpm'].append(fan)
+                elif fan["name"].startswith("FAN"):
+                    groups['low_rpm'].append(fan)
+            
+            # Check each group against known ranges
+            for group_name, fans in groups.items():
+                if not fans:
                     continue
                     
-                if rpm < 100:  # RPM too low - likely stopped
-                    logger.error(f"{name} appears stopped: {rpm} RPM")
-                    return False
-                    
-                responsive_fans += 1
+                # Get RPM ranges from config
+                board_config = self.config["fans"]["board_config"]
+                speed_steps = board_config["speed_steps"]
                 
+                # Get current RPMs
+                group_rpms = [f["value"] for f in fans]
+                avg_rpm = sum(group_rpms) / len(group_rpms)
+                logger.info(f"{group_name} fan RPMs: {group_rpms}, average: {avg_rpm}")
+                
+                # Find appropriate speed step for current speeds
+                current_step = None
+                best_match_diff = float('inf')
+                best_match_step = None
+                
+                # Find appropriate speed step for current speeds
+                current_step = None
+                best_match_diff = float('inf')
+                best_match_step = None
+                
+                # First try to find exact match
+                for step_name, step in speed_steps.items():
+                    # Get RPM ranges for this step
+                    if group_name == "cpu":
+                        rpm_ranges = step["rpm_ranges"]["cpu"]["cpu"]
+                    else:
+                        rpm_ranges = step["rpm_ranges"]["chassis"][group_name]
+                    
+                    # If min_speed is specified, only use that step
+                    if min_speed is not None:
+                        if step["threshold"] == min_speed:
+                            current_step = step
+                            break
+                    # For normal operation, find exact match first
+                    elif rpm_ranges["min"] <= avg_rpm <= rpm_ranges["max"]:
+                        current_step = step
+                        break
+                
+                # If no exact match, find closest match based on stable_rpm
+                if current_step is None:
+                    for step_name, step in speed_steps.items():
+                        # Get RPM ranges for this step
+                        if group_name == "cpu":
+                            rpm_ranges = step["rpm_ranges"]["cpu"]["cpu"]
+                        else:
+                            rpm_ranges = step["rpm_ranges"]["chassis"][group_name]
+                        
+                        if rpm_ranges.get("stable_rpm") is not None:
+                            diff = abs(avg_rpm - rpm_ranges["stable_rpm"])
+                            if diff < best_match_diff:
+                                best_match_diff = diff
+                                best_match_step = step
+                    
+                    # Use closest match or full speed as last resort
+                    if best_match_step is not None:
+                        current_step = best_match_step
+                        logger.info(f"Using closest matching step ({current_step['threshold']}%) for {group_name} fans")
+                    else:
+                        current_step = speed_steps["full"]
+                        logger.info(f"No matching step found, using full speed for {group_name} fans")
+                
+                # Get RPM ranges for this group
+                if group_name == "cpu":
+                    rpm_ranges = current_step["rpm_ranges"]["cpu"]["cpu"]
+                else:
+                    rpm_ranges = current_step["rpm_ranges"]["chassis"][group_name]
+                
+                # Log RPM ranges
+                logger.info(f"Using RPM ranges for {group_name} fans at {current_step['threshold']}% speed: {rpm_ranges}")
+                
+                group_rpms = [f["value"] for f in fans]
+                
+                # Get current RPMs
+                group_rpms = [f["value"] for f in fans]
+                logger.info(f"{group_name} fan RPMs: {group_rpms}")
+                
+                # Check minimum speed if specified
+                if min_speed is not None:
+                    min_rpm = rpm_ranges["min"]  # Use exact min from step
+                    if min(group_rpms) < min_rpm:
+                        logger.error(f"{group_name} fans below required {min_speed}% speed (min RPM: {min_rpm})")
+                        return False
+                
+                # Check maximum expected speed
+                max_rpm = rpm_ranges["max"]
+                if max(group_rpms) > max_rpm:
+                    logger.warning(f"{group_name} fans above maximum expected speed (max RPM: {max_rpm})")
+                
+                # Check stability
+                avg_rpm = sum(group_rpms) / len(group_rpms)
+                if rpm_ranges.get("stable_rpm") is not None:
+                    expected_rpm = rpm_ranges["stable_rpm"]
+                    if expected_rpm > 0:  # Avoid division by zero
+                        variation = abs(avg_rpm - expected_rpm) / expected_rpm * 100
+                        logger.info(f"{group_name} fans average RPM: {avg_rpm}, expected: {expected_rpm}, variation: {variation:.1f}%")
+                        if variation > 30:  # 30% variation from stable point
+                            logger.warning(f"{group_name} fans unstable")
+                    else:
+                        logger.info(f"{group_name} fans average RPM: {avg_rpm} (stability check skipped - zero expected RPM)")
+                else:
+                    logger.info(f"{group_name} fans average RPM: {avg_rpm} (stability check skipped - no stable RPM)")
+            
             # Ensure we have enough working fans
             min_fans = self.config["safety"].get("min_working_fans", 1)
-            if responsive_fans < min_fans:
-                logger.error(f"Insufficient working fans: {responsive_fans} < {min_fans}")
+            working_fans = sum(len(fans) for fans in groups.values())
+            if working_fans < min_fans:
+                logger.error(f"Insufficient working fans: {working_fans} < {min_fans}")
                 return False
                 
             return True
@@ -234,24 +358,35 @@ class ControlManager:
                 zone_temps = []
                 base_sensors = zone_config["sensors"]
                 
+                logger.info(f"Checking temperatures for zone {zone_name}")
+                logger.debug(f"Base sensors: {base_sensors}")
+                
                 for base_sensor in base_sensors:
                     pattern = base_sensor.replace('*', '.*')
                     pattern_re = re.compile(pattern, re.IGNORECASE)
+                    logger.debug(f"Using pattern: {pattern}")
                     
                     # Check IPMI temperatures
                     for reading in temp_readings:
+                        logger.debug(f"Checking reading: {reading['name']} = {reading.get('value')}°C (state: {reading.get('state')})")
                         if pattern_re.match(reading["name"]) and reading["value"] is not None:
                             zone_temps.append(reading["value"])
+                            logger.debug(f"Added temperature {reading['value']}°C from {reading['name']}")
                     
                     # Check NVMe temperatures if pattern matches
                     if "NVMe" in base_sensor:
+                        logger.debug(f"Adding NVMe temperatures: {nvme_temps}")
                         zone_temps.extend(nvme_temps)
 
                 if zone_temps:
                     max_zone_temp = max(zone_temps)
+                    logger.info(f"Zone {zone_name} temperatures: {zone_temps}")
+                    logger.info(f"Max temperature for zone {zone_name}: {max_zone_temp}°C")
                     if max_zone_temp >= zone_config["critical_max"]:
                         logger.error(f"Critical temperature reached in {zone_name} zone: {max_zone_temp}°C")
                         return False
+                else:
+                    logger.warning(f"No valid temperatures found for zone {zone_name}")
                 
             # Check reading age
             reading_age = time.time() - self._last_valid_reading
@@ -321,18 +456,53 @@ class ControlManager:
                         logger.warning(f"No valid temperature for zone {zone_name}")
                         continue
                     
-                    # Calculate target speed from curve
-                    target_speed = curve.get_speed(temp_delta)
+                    # Get speed info from curve
+                    speed_info = curve.get_speed(temp_delta)
+                    target_speed = speed_info['speed']
                     
                     # Only update if speed has changed significantly
-                    current_speed = self.current_speeds.get(zone_name, 0)
+                    current_speed = self.current_speeds.get(zone_name, {}).get('speed', 0)
                     if abs(target_speed - current_speed) >= 5:  # 5% threshold for changes
-                        # Set new speed using H12's discrete steps
-                        self.commander.set_fan_speed(target_speed, zone=zone_name)
-                        logger.info(f"Fan speed set to {target_speed}% for zone {zone_name} (target: {target_speed}%)")
-                        self.current_speeds[zone_name] = target_speed
+                        # Set new speed using proper hex formatting
+                        self.commander.set_fan_speed(
+                            speed_percent=target_speed,
+                            zone=zone_name
+                        )
                         
-                        logger.debug(f"Zone {zone_name}: {temp_delta:.1f}°C -> {target_speed}% (current)")
+                        # Update tracking
+                        self.current_speeds[zone_name] = {
+                            'speed': target_speed,
+                            'hex_speed': speed_info['hex_speed'],
+                            'needs_prefix': speed_info['needs_prefix'],
+                            'expected_rpms': speed_info['expected_rpms']
+                        }
+                        
+                        logger.info(f"Fan speed set to {target_speed}% for zone {zone_name}")
+                        logger.debug(f"Zone {zone_name}: {temp_delta:.1f}°C -> {target_speed}%")
+                        
+                        # Verify speeds match expectations
+                        readings = self.commander.get_sensor_readings()
+                        fan_readings = [r for r in readings if r["name"].startswith("FAN")]
+                        
+                        for fan in fan_readings:
+                            if fan["state"] == "ns" or fan["value"] is None:
+                                continue
+                                
+                            # Determine fan group
+                            if fan["name"].startswith("FANA"):
+                                group = 'cpu'
+                            elif fan["name"] in ["FAN1", "FAN5"]:
+                                group = 'high_rpm'
+                            else:
+                                group = 'low_rpm'
+                                
+                            # Check against expected range
+                            rpm = fan["value"]
+                            expected = speed_info['expected_rpms'][group]
+                            if rpm < expected['min']:
+                                logger.warning(f"{fan['name']} RPM ({rpm}) below expected minimum ({expected['min']})")
+                            elif rpm > expected['max']:
+                                logger.warning(f"{fan['name']} RPM ({rpm}) above expected maximum ({expected['max']})")
                     
             except Exception as e:
                 logger.error(f"Control loop error: {e}")
@@ -341,15 +511,6 @@ class ControlManager:
             # Wait for next iteration - use monitor_interval if in monitor mode
             interval = self.config["fans"]["monitor_interval"] if self.monitor_mode else self.config["fans"]["polling_interval"]
             time.sleep(interval)
-
-    def learn_min_speeds(self) -> Dict[str, int]:
-        """Learn minimum stable fan speeds
-        
-        Returns:
-            Dictionary of learned minimum speeds by zone
-        """
-        learner = FanSpeedLearner(self.commander, self.config_path)
-        return learner.learn_min_speeds()
 
     def start(self) -> None:
         """Start the control loop"""
@@ -379,14 +540,31 @@ class ControlManager:
             for zone_name, curve in self.fan_curves.items():
                 temp_delta = self._get_zone_temperature(zone_name)
                 if temp_delta is not None:
-                    speed = curve.get_speed(temp_delta)
-                    self.commander.set_fan_speed(speed, zone=zone_name)
-                    self.current_speeds[zone_name] = speed
+                    speed_info = curve.get_speed(temp_delta)
+                    self.commander.set_fan_speed(
+                        speed_percent=speed_info['speed'],
+                        zone=zone_name
+                    )
+                    self.current_speeds[zone_name] = {
+                        'speed': speed_info['speed'],
+                        'hex_speed': speed_info['hex_speed'],
+                        'needs_prefix': speed_info['needs_prefix'],
+                        'expected_rpms': speed_info['expected_rpms']
+                    }
                 else:
                     # If no valid temperature, set a safe default
-                    default_speed = 30  # 30% as safe default
-                    self.commander.set_fan_speed(default_speed, zone=zone_name)
-                    self.current_speeds[zone_name] = default_speed
+                    default_speed = 50  # 50% as safe minimum
+                    speed_info = curve.get_speed(0)  # Get info for minimum speed
+                    self.commander.set_fan_speed(
+                        speed_percent=default_speed,
+                        zone=zone_name
+                    )
+                    self.current_speeds[zone_name] = {
+                        'speed': default_speed,
+                        'hex_speed': speed_info['hex_speed'],
+                        'needs_prefix': speed_info['needs_prefix'],
+                        'expected_rpms': speed_info['expected_rpms']
+                    }
             
             # Start control thread
             self._running = True
@@ -418,7 +596,7 @@ class ControlManager:
                     
             logger.info("Control loop stopped")
 
-    def get_status(self) -> Dict:
+    def get_status(self) -> Dict[str, Any]:
         """Get current control status
         
         Returns:
@@ -438,18 +616,21 @@ class ControlManager:
             
         # Get current and target fan speeds for each zone
         for zone_name in self.fan_curves:
-            # Get current speed from tracking
-            current_speed = self.current_speeds.get(zone_name, 0)
+            # Get current speed info from tracking
+            current = self.current_speeds.get(zone_name, {})
             
             # Get target speed from temperature and curve
             temp_delta = self._get_zone_temperature(zone_name)
-            target_speed = None
+            target = None
             if temp_delta is not None:
-                target_speed = self.fan_curves[zone_name].get_speed(temp_delta)
+                target = self.fan_curves[zone_name].get_speed(temp_delta)
             
             status["fan_speeds"][zone_name] = {
-                "current": current_speed,
-                "target": target_speed
+                "current": current.get('speed'),
+                "target": target['speed'] if target else None,
+                "hex_speed": current.get('hex_speed'),
+                "needs_prefix": current.get('needs_prefix'),
+                "expected_rpms": current.get('expected_rpms')
             }
                 
         return status

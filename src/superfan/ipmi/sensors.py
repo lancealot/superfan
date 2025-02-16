@@ -376,7 +376,7 @@ class SensorReader:
             readings = self.commander.get_sensor_readings()
             # Filter for temperature sensors first
             temp_sensors = [r for r in readings if "Temp" in r["name"]]
-            logger.debug(f"Found temperature sensors: {[r['name'] for r in temp_sensors]}")
+            logger.info(f"Found temperature sensors: {[r['name'] for r in temp_sensors]}")
             
             # If no patterns specified, include all temperature sensors
             if not self.sensor_patterns:
@@ -384,17 +384,18 @@ class SensorReader:
             else:
                 # Match temperature sensors against patterns
                 self.sensor_names = set()
-                logger.debug(f"Matching sensors against patterns: {[p.pattern for p in self.sensor_patterns]}")
+                logger.info(f"Matching sensors against patterns: {[p.pattern for p in self.sensor_patterns]}")
                 for reading in temp_sensors:
                     name = reading["name"]
-                    logger.debug(f"Checking sensor: {name}")
+                    logger.info(f"Checking sensor: {name}")
                     for pattern in self.sensor_patterns:
-                        if pattern.match(name):  # Use match to ensure pattern matches from start
-                            logger.debug(f"Sensor {name} matched pattern {pattern.pattern}")
+                        # Use search instead of match to allow patterns to match anywhere in name
+                        if pattern.search(name):
+                            logger.info(f"Sensor {name} matched pattern {pattern.pattern}")
                             self.sensor_names.add(name)
                             break
                         else:
-                            logger.debug(f"Sensor {name} did not match pattern {pattern.pattern}")
+                            logger.info(f"Sensor {name} did not match pattern {pattern.pattern}")
             logger.info(f"Discovered sensors: {', '.join(self.sensor_names)}")
         except IPMIError as e:
             logger.error(f"Failed to discover sensors: {e}")

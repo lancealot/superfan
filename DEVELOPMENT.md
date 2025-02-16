@@ -73,6 +73,66 @@ IPMICommander
     └── Speed control
 ```
 
+### IPMI Fan Control Commands
+
+1. Fan Mode Control:
+```bash
+# Read current fan mode
+ipmitool raw 0x30 0x45 0x00
+# Returns:
+# 0x00 = Standard (BMC control, target 50% both zones)
+# 0x01 = Full (Manual control enabled)
+# 0x02 = Optimal (BMC control, CPU 30%, Peripheral low)
+# 0x04 = Heavy IO (BMC control, CPU 50%, Peripheral 75%)
+
+# Set fan mode
+ipmitool raw 0x30 0x45 0x01 [mode]
+# mode: 0x00 (Standard), 0x01 (Full), 0x02 (Optimal), 0x04 (Heavy IO)
+```
+
+IMPORTANT SAFETY NOTE:
+- Only Full mode (0x01) guarantees safe fan speeds
+- Other modes may allow fans to drop below minimum safe speeds:
+  * Standard mode: Can drop chassis fans below 700 RPM
+  * Optimal mode: Can drop chassis fans to 280 RPM
+  * Heavy IO mode: Can drop chassis fans to 280 RPM
+- Always use Full mode with explicit fan speed control
+- Monitor fan speeds when changing modes
+- Revert to Full mode if speeds drop below minimums:
+  * High RPM fans (FAN1, FAN5): 980 RPM minimum
+  * Low RPM fans (FAN2-4): 700 RPM minimum
+  * CPU fan (FANA): 2520 RPM minimum
+
+2. PWM Duty Cycle Control:
+```bash
+# Set fan speed for a zone
+ipmitool raw 0x30 0x70 0x66 0x01 [zone] [speed]
+# zone: 0x00 (Chassis fans), 0x01 (CPU fan)
+# speed: 0x00-0x64 (0-100% in hex)
+```
+
+3. Fan Zones and Behavior:
+- Zone 0 (Chassis Fans - FAN1-5):
+  * Controls all chassis fans as a group
+  * High RPM fans (FAN1, FAN5): Different RPM range
+  * Low RPM fans (FAN2-4): Lower RPM range
+  * Responds proportionally to PWM changes
+  * Independent from CPU fan control
+
+- Zone 1 (CPU Fan - FANA):
+  * Controls CPU fan independently
+  * Higher RPM range than chassis fans
+  * Responds independently to PWM changes
+  * FANB readings can be ignored (unpopulated slot)
+
+4. Important Considerations:
+- Full mode (0x01) required for manual PWM control
+- BMC will override fan speeds in other modes
+- Allow 5 seconds between speed changes
+- Verify speed changes via sensor readings
+- Monitor temperature impact of changes
+- Handle empty fan slots gracefully
+
 ## Development Guidelines
 
 ### Code Style and Documentation

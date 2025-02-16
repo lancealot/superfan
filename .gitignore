@@ -22,9 +22,8 @@ wheels/
 
 # Virtual Environment
 venv/
-ENV/
 env/
-.env/
+ENV/
 
 # IDE
 .idea/
@@ -43,31 +42,10 @@ htmlcov/
 *.log
 logs/
 
-# Build
-*.rpm
-*.deb
-RPMS/
-SRPMS/
-BUILD/
-BUILDROOT/
-
 # System
 .DS_Store
 Thumbs.db
 
-# Configuration backups
-config.yaml.bak
-config.yaml.new
-
-# Service files
-*.service.bak
-
-# Mypy
-.mypy_cache/
-
-# Coverage
-coverage.xml
-.coverage.*
-
-# Documentation
-docs/_build/
+# Project specific
+/etc/superfan/config.yaml.bak
+/etc/superfan/config.yaml.new

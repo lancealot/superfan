@@ -161,85 +161,31 @@ class StableSpeedCurve(FanCurve):
     - RPM range validation
     """
     
-    # Known stable speed points for H12 board
-    STABLE_POINTS = [
-        {
-            'temp': 40,     # High temperature threshold
-            'speed': 100,   # Full speed
-            'hex': 'ff',    # 0xFF step (100%)
-            'prefix': False,
-            'rpm_ranges': {
-                'high_rpm': {'min': 980, 'max': 1820},   # FAN1, FAN5
-                'low_rpm': {'min': 700, 'max': 1400},    # FAN2-4
-                'cpu': {'min': 2520, 'max': 3640}        # FANA
-            }
-        },
-        {
-            'temp': 35,
-            'speed': 75,
-            'hex': '60',    # 0x60 step (37.5%)
-            'prefix': False,
-            'rpm_ranges': {
-                'high_rpm': {'min': 980, 'max': 1820},
-                'low_rpm': {'min': 700, 'max': 1400},
-                'cpu': {'min': 2520, 'max': 3640}
-            }
-        },
-        {
-            'temp': 30,
-            'speed': 50,
-            'hex': '32',    # 0x32 step (20%)
-            'prefix': False,
-            'rpm_ranges': {
-                'high_rpm': {'min': 980, 'max': 1820},
-                'low_rpm': {'min': 700, 'max': 1400},
-                'cpu': {'min': 2520, 'max': 3640}
-            }
-        }
-    ]
-    
-    # Fan group RPM ranges
-    FAN_RANGES = {
-        'high_rpm': {  # FAN1, FAN5
-            'min': 980,    # Minimum safe RPM
-            'max': 1820,   # Maximum observed RPM
-            'stable': 980  # Most stable operating point
-        },
-        'low_rpm': {   # FAN2-4
-            'min': 700,    # Minimum safe RPM
-            'max': 1400,   # Maximum observed RPM
-            'stable': 700  # Most stable operating point
-        },
-        'cpu': {       # FANA
-            'min': 2520,   # Minimum safe RPM
-            'max': 3640,   # Maximum observed RPM
-            'stable': 2520 # Most stable operating point
-        }
-    }
-    
-    def __init__(self, min_speed: float = 50, max_speed: float = 100):
-        """Initialize with speed limits.
+    def __init__(self, config: Dict[str, Any]):
+        """Initialize with configuration.
         
         Args:
-            min_speed: Minimum fan speed percentage (50-100)
-            max_speed: Maximum fan speed percentage (50-100)
+            config: Configuration dictionary containing:
+                - board_config.speed_steps: Speed step configuration
+                - board_config.min_speed: Minimum fan speed (0-100)
+                - board_config.max_speed: Maximum fan speed (0-100)
         """
+        self.config = config
+        self.speed_steps = config["fans"]["board_config"]["speed_steps"]
+        
         # Validate speed limits
-        if not 50 <= min_speed <= 100:  # Enforce minimum 50% for safety
-            raise ValueError(f"Invalid min_speed {min_speed}%, must be 50-100")
-        if not 50 <= max_speed <= 100:
-            raise ValueError(f"Invalid max_speed {max_speed}%, must be 50-100")
+        min_speed = config["fans"]["board_config"]["min_speed"]
+        max_speed = config["fans"]["board_config"]["max_speed"]
+        
+        if not 0 <= min_speed <= 100:  # Allow full range
+            raise ValueError(f"Invalid min_speed {min_speed}%, must be 0-100")
+        if not 0 <= max_speed <= 100:
+            raise ValueError(f"Invalid max_speed {max_speed}%, must be 0-100")
         if min_speed > max_speed:
             raise ValueError(f"min_speed ({min_speed}%) cannot be greater than max_speed ({max_speed}%)")
             
         self.min_speed = min_speed
         self.max_speed = max_speed
-        
-        # Filter points within speed range
-        self.points = [p for p in self.STABLE_POINTS 
-                      if min_speed <= p['speed'] <= max_speed]
-        if not self.points:
-            raise ValueError(f"No stable points available between {min_speed}% and {max_speed}%")
     
     def get_speed(self, temp_delta: float) -> Dict[str, Any]:
         """Get stable fan speed point for temperature delta.
@@ -249,29 +195,37 @@ class StableSpeedCurve(FanCurve):
             
         Returns:
             Dictionary containing:
-            - speed: Fan speed percentage (50-100)
+            - speed: Fan speed percentage (0-100)
             - hex_speed: Hex value for IPMI command
             - needs_prefix: Whether hex value needs 0x prefix
             - expected_rpms: Expected RPM ranges per fan group
         """
-        if not self.points:
-            # Fail safe to highest stable point
-            point = self.STABLE_POINTS[0]
-        else:
-            # Find first point with temperature >= delta
-            for point in self.points:
-                if temp_delta <= point['temp']:
-                    break
-            else:
-                # Temperature above all points, use highest
-                point = self.points[0]
+        # Map temperature delta to speed step based on config
+        if temp_delta >= 15:  # Critical
+            step = self.speed_steps.get("full", {"threshold": 100, "hex_speed": "0xff"})
+            speed = step["threshold"]
+            hex_speed = step["hex_speed"]
+        elif temp_delta >= 10:  # Warning
+            step = self.speed_steps.get("high", {"threshold": 75, "hex_speed": "0x60"})
+            speed = step["threshold"]
+            hex_speed = step["hex_speed"]
+        elif temp_delta >= 5:  # Elevated
+            step = self.speed_steps.get("medium", {"threshold": 50, "hex_speed": "0x40"})
+            speed = step["threshold"]
+            hex_speed = step["hex_speed"]
+        else:  # Normal
+            step = self.speed_steps.get("low", {"threshold": 0, "hex_speed": "0x00"})
+            speed = step["threshold"]
+            hex_speed = step["hex_speed"]
+            
+        # Ensure speed within limits
+        speed = max(self.min_speed, min(self.max_speed, speed))
         
-        # Use predefined RPM ranges for each speed point
         return {
-            'speed': point['speed'],
-            'hex_speed': point['hex'],
-            'needs_prefix': point['prefix'],
-            'expected_rpms': point['rpm_ranges']
+            'speed': speed,
+            'hex_speed': hex_speed,
+            'needs_prefix': False,  # H12 board never needs prefix
+            'expected_rpms': step["rpm_ranges"]
         }
 
 

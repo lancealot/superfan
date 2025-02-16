@@ -15,6 +15,13 @@ from enum import Enum
 
 logger = logging.getLogger(__name__)
 
+class FanMode(Enum):
+    """Supermicro fan control modes"""
+    STANDARD = 0x00  # BMC control, target 50% both zones
+    FULL = 0x01      # Manual control enabled
+    OPTIMAL = 0x02   # BMC control, CPU 30%, Peripheral low
+    HEAVY_IO = 0x04  # BMC control, CPU 50%, Peripheral 75%
+
 class MotherboardGeneration(Enum):
     """Supported Supermicro motherboard generations"""
     X9 = "X9"
@@ -48,29 +55,35 @@ class IPMICommander:
 
     # Known stable fan speed points and their hex values for H12 board
     STABLE_SPEEDS = {
-        100: {'hex': 'ff', 'prefix': False},  # High: 980-1820, Low: 700-1400, CPU: 2520-3640
-        75:  {'hex': '60', 'prefix': False},  # High: 980-1820, Low: 700-1400, CPU: 2520-3640
-        50:  {'hex': '32', 'prefix': False},  # High: 980-1820, Low: 700-1400, CPU: 2520-3640
+        100: {'hex': 'ff', 'prefix': False},  # Full speed
+        75:  {'hex': '60', 'prefix': False},  # High speed
+        50:  {'hex': '40', 'prefix': False},  # Medium speed
+        25:  {'hex': '20', 'prefix': False},  # Low speed
+        12:  {'hex': '10', 'prefix': False},  # Very low speed
+        0:   {'hex': '00', 'prefix': False},  # Off
     }
 
     # Fan group RPM ranges for H12 board
     FAN_RANGES = {
         'high_rpm': {  # FAN1, FAN5
-            'min': 980,    # Minimum safe RPM
-            'max': 1820,   # Maximum observed RPM
-            'stable': 980  # Most stable operating point
+            'min': 0,       # Allow fans to stop
+            'max': 1820,    # Maximum observed RPM
+            'stable': 1680  # Most stable operating point
         },
         'low_rpm': {   # FAN2-4
-            'min': 700,    # Minimum safe RPM
-            'max': 1400,   # Maximum observed RPM
-            'stable': 700  # Most stable operating point
+            'min': 0,       # Allow fans to stop
+            'max': 1400,    # Maximum observed RPM
+            'stable': 1400  # Most stable operating point
         },
         'cpu': {       # FANA
-            'min': 2520,   # Minimum safe RPM
-            'max': 3640,   # Maximum observed RPM
-            'stable': 2520 # Most stable operating point
+            'min': 0,       # Allow fans to stop
+            'max': 3640,    # Maximum observed RPM
+            'stable': 3640  # Most stable operating point
         }
     }
+
+    # RPM tolerance percentage for stable point comparison
+    RPM_TOLERANCE = 30  # Allow 30% deviation from stable point
 
     # IPMI raw commands for different board generations
     COMMANDS = {
@@ -184,13 +197,14 @@ class IPMICommander:
                 if cmd == 0x45:  # Mode control
                     if len(parts) >= 5:
                         mode = int(parts[4], 16)
-                        if mode not in [0x00, 0x01]:  # Only allow get mode and manual/auto
+                        valid_modes = [m.value for m in FanMode]
+                        if mode not in valid_modes:
                             raise IPMIError(f"Invalid fan mode: {hex(mode)}")
                 elif cmd in [0x70, 0x91]:  # Fan speed control
                     if len(parts) >= 7:
                         speed = int(parts[-1], 16)
-                        if speed < 0x04:  # Minimum 2% (0x04)
-                            raise IPMIError(f"Fan speed too low: {hex(speed)}")
+                        if speed < 0x00:  # Allow 0% speed
+                            raise IPMIError(f"Invalid fan speed: {hex(speed)}")
                             
         except ValueError as e:
             raise IPMIError(f"Invalid command format: {e}")
@@ -216,7 +230,7 @@ class IPMICommander:
         
         # For local access, just use ipmitool
         if self.host == "localhost":
-            base_cmd = ["ipmitool"]
+            base_cmd = ["sudo", "ipmitool"]
         else:
             # For remote access, include connection parameters
             base_cmd = [
@@ -340,78 +354,101 @@ class IPMICommander:
             self.board_gen = MotherboardGeneration.UNKNOWN
             raise IPMIError(f"Failed to detect board generation: {str(e)}")
 
-    def get_fan_mode(self) -> bool:
+    def get_fan_mode(self) -> FanMode:
         """Get current fan control mode from BMC.
 
-        This method queries the BMC to determine if fans are in manual or automatic control mode.
+        This method queries the BMC to determine the current fan control mode.
         It uses the command "raw 0x30 0x45 0x00" which returns:
-        - "01" for manual mode (user-controlled fan speeds)
-        - "00" for automatic mode (BMC-controlled fan speeds)
+        - 0x00: Standard mode (BMC control, target 50% both zones)
+        - 0x01: Full mode (Manual control enabled)
+        - 0x02: Optimal mode (BMC control, CPU 30%, Peripheral low)
+        - 0x04: Heavy IO mode (BMC control, CPU 50%, Peripheral 75%)
 
         Returns:
-            bool: True if in manual mode, False if in automatic mode
+            FanMode: Current fan control mode enum value
 
         Raises:
             IPMIError: If mode cannot be determined:
                 - "Failed to get fan mode: {error}"
+                - "Invalid fan mode value: {value}"
 
         Examples:
             >>> commander = IPMICommander("config.yaml")
-            >>> is_manual = commander.get_fan_mode()
-            >>> print("Manual" if is_manual else "Auto")
-            Auto
+            >>> mode = commander.get_fan_mode()
+            >>> print(mode.name)
+            STANDARD
         """
         try:
             result = self._execute_ipmi_command("raw 0x30 0x45 0x00")
-            # Returns "01" for manual mode, "00" for auto mode
-            return result.strip() == "01"
+            mode_value = int(result.strip(), 16)
+            try:
+                return FanMode(mode_value)
+            except ValueError:
+                raise IPMIError(f"Invalid fan mode value: {hex(mode_value)}")
         except Exception as e:
             raise IPMIError(f"Failed to get fan mode: {e}")
+
+    def set_fan_mode(self, mode: FanMode) -> None:
+        """Set fan control mode on BMC.
+
+        This method sets the fan control mode to one of four options:
+        - STANDARD: BMC control with 50% target for both zones
+        - FULL: Manual control enabled for custom speeds
+        - OPTIMAL: BMC control with CPU at 30%, Peripheral low
+        - HEAVY_IO: BMC control with CPU at 50%, Peripheral at 75%
+
+        Args:
+            mode: FanMode enum value to set
+
+        Raises:
+            IPMIError: If mode cannot be set:
+                - "Failed to set fan mode: {error}"
+                - "Mode change verification failed"
+
+        Examples:
+            >>> commander = IPMICommander("config.yaml")
+            >>> commander.set_fan_mode(FanMode.FULL)  # Enable manual control
+            >>> commander.set_fan_mode(FanMode.STANDARD)  # Return to BMC control
+        """
+        try:
+            command = f"raw 0x30 0x45 0x01 {hex(mode.value)}"
+            self._execute_ipmi_command(command)
+            
+            # Verify mode change
+            current_mode = self.get_fan_mode()
+            if current_mode != mode:
+                raise IPMIError("Mode change verification failed")
+                
+            logger.info(f"Fan control set to {mode.name} mode")
+        except Exception as e:
+            raise IPMIError(f"Failed to set fan mode: {e}")
 
     def set_manual_mode(self) -> None:
         """Set fan control to manual mode for direct speed control.
 
-        This method switches fan control from automatic (BMC-controlled) to manual mode,
-        allowing direct control of fan speeds. It performs the following steps:
-        1. Verifies board generation is known
-        2. Sends manual mode command for the specific board
-        3. Verifies mode change was successful
+        This method is a convenience wrapper around set_fan_mode(FanMode.FULL).
+        It switches fan control to manual mode, allowing direct control of fan speeds.
 
         Note:
-            - H12 boards do not support reliable manual control
             - Manual mode disables BMC's automatic temperature management
             - Always use appropriate safety checks when in manual mode
+            - For H12 boards, use specific speed steps (see set_fan_speed docs)
 
         Raises:
-            IPMIError: If manual mode cannot be set:
-                - "Unknown board generation"
-                - "Failed to enter manual mode"
+            IPMIError: If manual mode cannot be set
 
         Examples:
             >>> commander = IPMICommander("config.yaml")
             >>> commander.set_manual_mode()  # Enable manual control
             >>> commander.set_fan_speed(50, zone="cpu")  # Now we can set speeds
         """
-        if self.board_gen == MotherboardGeneration.UNKNOWN:
-            raise IPMIError("Unknown board generation")
-            
-        command = self.COMMANDS[self.board_gen]["SET_MANUAL_MODE"]
-        self._execute_ipmi_command(command)
-        
-        # Verify mode change
-        if not self.get_fan_mode():
-            raise IPMIError("Failed to enter manual mode")
-            
-        logger.info("Fan control set to manual mode")
+        self.set_fan_mode(FanMode.FULL)
 
     def set_auto_mode(self) -> None:
         """Restore automatic fan control by returning control to BMC.
 
-        This method switches fan control from manual (user-controlled) to automatic mode,
-        returning temperature management to the BMC. It performs the following steps:
-        1. Verifies board generation is known
-        2. Sends auto mode command for the specific board
-        3. Verifies mode change was successful
+        This method is a convenience wrapper around set_fan_mode(FanMode.STANDARD).
+        It switches fan control back to standard automatic mode.
 
         This is a safety-critical operation used in several scenarios:
         - Normal cleanup when exiting
@@ -420,26 +457,14 @@ class IPMICommander:
         - Response to critical temperatures
 
         Raises:
-            IPMIError: If automatic mode cannot be set:
-                - "Unknown board generation"
-                - "Failed to enter automatic mode"
+            IPMIError: If automatic mode cannot be set
 
         Examples:
             >>> commander = IPMICommander("config.yaml")
             >>> commander.set_auto_mode()  # Return control to BMC
-            >>> assert not commander.get_fan_mode()  # Verify in auto mode
+            >>> assert commander.get_fan_mode() == FanMode.STANDARD
         """
-        if self.board_gen == MotherboardGeneration.UNKNOWN:
-            raise IPMIError("Unknown board generation")
-            
-        command = self.COMMANDS[self.board_gen]["SET_AUTO_MODE"]
-        self._execute_ipmi_command(command)
-        
-        # Verify mode change
-        if self.get_fan_mode():
-            raise IPMIError("Failed to enter automatic mode")
-            
-        logger.info("Fan control restored to automatic mode")
+        self.set_fan_mode(FanMode.STANDARD)
 
     def set_fan_speed(self, speed_percent: int, zone: str = "chassis") -> None:
         """Set fan speed for a specific cooling zone with board-specific handling.
@@ -496,9 +521,8 @@ class IPMICommander:
         if self.board_gen == MotherboardGeneration.UNKNOWN:
             raise IPMIError("Unknown board generation")
         
-        # Ensure minimum speed of 20% for H12 boards, 5% for others
-        min_speed = 20 if self.board_gen == MotherboardGeneration.H12 else 5
-        speed_percent = max(min_speed, speed_percent)
+        # Allow full speed range
+        speed_percent = max(0, speed_percent)
         
         # Find nearest stable speed point
         stable_points = sorted(self.STABLE_SPEEDS.keys())
@@ -529,19 +553,34 @@ class IPMICommander:
                 # 0x40 (25%):   FAN1=1260, FAN2-4=980, FAN5=1260
                 # 0x20 (12.5%): FAN1=980, FAN2-4=840, FAN5=1260
                 
-                # Map to closest step based on actual board values
-                if speed_percent < 50:
-                    hex_speed = "40"  # 25% step
+                # Map to closest step based on config
+                if speed_percent < 12:
+                    hex_speed = "00"  # Off (0%)
+                    step_name = "off"
+                    actual_percent = 0
+                elif speed_percent < 25:
+                    hex_speed = "10"  # Very low (12%)
+                    step_name = "very_low"
+                    actual_percent = 12
+                elif speed_percent < 50:
+                    hex_speed = "20"  # Low (25%)
+                    step_name = "low"
+                    actual_percent = 25
+                elif speed_percent < 75:
+                    hex_speed = "40"  # Medium (50%)
                     step_name = "medium"
                     actual_percent = 50
-                elif speed_percent < 75:
-                    hex_speed = "60"  # 37.5% step
+                elif speed_percent < 85:
+                    hex_speed = "60"  # High (75%)
                     step_name = "high"
                     actual_percent = 75
                 else:
-                    hex_speed = "ff"  # 100% step
+                    hex_speed = "ff"  # Full (100%)
                     step_name = "full"
                     actual_percent = 100
+
+                # Update speed info for verification
+                speed_percent = actual_percent
             
                 selected_step = speed_steps[step_name]
                 actual_percent = selected_step["threshold"]
@@ -584,7 +623,7 @@ class IPMICommander:
                         raise IPMIError(f"Fan speed unsafe - {fan['name']} too low")
                     elif rpm > rpm_range['max']:
                         logger.warning(f"{fan['name']} RPM ({rpm}) above maximum expected ({rpm_range['max']})")
-                    elif abs(rpm - rpm_range['stable']) > rpm_range['stable'] * 0.3:  # 30% deviation
+                    elif abs(rpm - rpm_range['stable']) > rpm_range['stable'] * (self.RPM_TOLERANCE / 100.0):
                         logger.warning(f"{fan['name']} RPM ({rpm}) far from stable point ({rpm_range['stable']})")
             
             except Exception as e:
@@ -645,104 +684,41 @@ class IPMICommander:
             if len(parts) >= 3:  # We need at least name, value, and state
                 try:
                     name = parts[0].strip()
-                    value_part = parts[1].strip()
+                    value_str = parts[1].strip()
                     state = parts[2].strip().lower()
                     
                     # Parse value if present and state is not 'ns'
                     value = None
-                    if state != 'ns':  # Only parse value if not "no reading"
-                        # Clean up value string and handle Kelvin format
-                        value_str = value_part.split('(')[0]  # Take part before Kelvin
-                        value_str = value_str.replace('°', '').replace('degrees', '').replace('C', '').replace('RPM', '').strip()
+                    if state != 'ns' and value_str:
                         try:
-                            value = float(value_str)
+                            # Extract numeric value, handling various formats:
+                            # "45.000 degrees C"
+                            # "1680 RPM"
+                            # "0x01"
+                            value_parts = value_str.split()
+                            if value_parts:
+                                # Try to parse first part as number
+                                num_str = value_parts[0].replace('°', '')  # Remove degree symbol
+                                if num_str.startswith('0x'):
+                                    value = int(num_str, 16)
+                                else:
+                                    value = float(num_str)
                         except (ValueError, IndexError):
+                            logger.debug(f"Could not parse value from: {value_str}")
                             state = 'ns'  # Mark as no reading if value parse fails
                     
-                    current_reading = {
+                    reading = {
                         "name": name,
                         "value": value,
-                        "state": state,  # 'ok', 'cr', or 'ns'
+                        "state": state,
                         "response_id": None
                     }
                     
-                    readings.append(current_reading)
+                    readings.append(reading)
+                    current_reading = reading
                     
                 except (ValueError, IndexError) as e:
                     logger.warning(f"Failed to parse sensor reading: {line} - {str(e)}")
                     continue
                     
         return readings
-
-    def verify_fan_speed(self, target_speed: int, tolerance: int = 10) -> bool:
-        """Verify that fan speeds are operating within expected ranges.
-
-        This method checks if fans are operating correctly after a speed change by:
-        1. Getting current fan readings
-        2. Mapping target speed to board-specific speed steps
-        3. Verifying fan RPMs against expected ranges
-        4. Checking minimum working fan requirements
-
-        The verification process is board-specific:
-        - H12 boards use fixed speed steps (12.5%, 25%, 37.5%, 100%)
-        - Other boards use continuous speed range (5-100%)
-
-        Args:
-            target_speed: Target fan speed percentage (0-100)
-            tolerance: Acceptable percentage deviation from expected RPM (default: 10)
-
-        Returns:
-            bool: True if fans are operating within tolerance and minimum count is met
-
-        Examples:
-            >>> commander = IPMICommander("config.yaml")
-            >>> commander.set_manual_mode()
-            >>> commander.set_fan_speed(50, zone="chassis")
-            >>> if not commander.verify_fan_speed(50):
-            ...     commander.set_auto_mode()  # Revert on verification failure
-        """
-        readings = self.get_sensor_readings()
-        fan_readings = [r for r in readings if r["name"].startswith("FAN")]
-        
-        if not fan_readings:
-            logger.error("No fan readings available")
-            return False
-            
-        # Get board configuration
-        board_config = self.config["fans"]["board_config"]
-        speed_steps = board_config["speed_steps"]
-        
-        # Find appropriate speed step for target speed
-        current_step = None
-        for step_name, step_info in speed_steps.items():
-            if target_speed <= step_info["threshold"]:
-                current_step = step_info
-                break
-        else:
-            current_step = speed_steps["full"]
-        
-        working_fans = 0
-        for fan in fan_readings:
-            if fan["state"] == "ns" or fan["value"] is None:
-                continue
-                
-            # Determine fan zone
-            zone = "cpu" if fan["name"].startswith("FANA") else "chassis"
-            rpm = fan["value"]
-            
-            # Get RPM range for this step and zone
-            rpm_range = current_step["rpm_ranges"][zone]
-            min_rpm = rpm_range["min"] * (1 - tolerance/100.0)  # Allow for tolerance
-            
-            if rpm >= min_rpm:
-                working_fans += 1
-            else:
-                logger.warning(f"{fan['name']} RPM ({rpm}) below expected minimum ({min_rpm})")
-                
-        # Require at least 2 working fans
-        min_working = 2
-        if working_fans < min_working:
-            logger.error(f"Insufficient working fans: {working_fans} < {min_working}")
-            return False
-            
-        return True

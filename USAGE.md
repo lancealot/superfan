@@ -196,12 +196,54 @@ Note: Monitor mode automatically manages the superfan service:
 - Restarts the service when exiting monitor mode (Ctrl+C)
 - This prevents conflicts between monitor mode and service fan control
 
-3. Set a manual fan speed:
+3. Fan Control Modes:
+The system supports four fan control modes:
+- Standard (0x00): BMC controls both zones, targeting 50% speed
+- Full (0x01): Manual control enabled, required for custom speeds
+- Optimal (0x02): BMC controls CPU zone at 30%, Peripheral low
+- Heavy IO (0x04): BMC controls CPU at 50%, Peripheral fixed at 75%
+
+IMPORTANT SAFETY WARNING:
+Only Full mode (0x01) ensures safe fan operation. Other modes can allow fans to run at unsafe speeds:
+- Standard mode may drop below minimum safe speeds
+- Optimal mode can reduce chassis fans to as low as 280 RPM
+- Heavy IO mode can also allow unsafe low speeds
+- Always use Full mode with explicit fan speed control
+
+Minimum Safe Speeds:
+- High RPM Fans (FAN1, FAN5): 980 RPM
+- Low RPM Fans (FAN2-4): 700 RPM
+- CPU Fan (FANA): 2520 RPM
+
+To check current mode:
 ```bash
-superfan --manual 50  # Set fans to 50%
+sudo ipmitool raw 0x30 0x45 0x00
 ```
 
-4. Use a custom configuration file:
+To set a mode:
+```bash
+sudo ipmitool raw 0x30 0x45 0x01 [mode]  # mode: 00, 01, 02, or 04
+```
+
+Note: If using modes other than Full (0x01), monitor fan speeds closely and switch back to Full mode if speeds drop below safe minimums.
+
+4. Manual Fan Control:
+```bash
+superfan --manual 50  # Set all fans to 50%
+```
+
+For zone-specific control (requires Full mode):
+```bash
+# Set chassis fans (FAN1-5) to 50%
+sudo ipmitool raw 0x30 0x70 0x66 0x01 0x00 0x32
+
+# Set CPU fan (FANA) to 50%
+sudo ipmitool raw 0x30 0x70 0x66 0x01 0x01 0x32
+```
+
+Note: Allow 5 seconds between speed changes for proper stabilization.
+
+5. Use a custom configuration file:
 ```bash
 superfan -c /path/to/config.yaml
 ```
@@ -400,26 +442,58 @@ ipmitool sdr list
 
 4. Manual Fan Control Test
 ```bash
-# Test manual fan control
-ipmitool raw 0x30 0x45 0x01 0x01  # Enter manual mode
+# 1. Check current mode
+sudo ipmitool raw 0x30 0x45 0x00
+
+# 2. Enter Full mode (required for manual control)
+sudo ipmitool raw 0x30 0x45 0x01 0x01
 sleep 5  # Wait for mode change to take effect
 
-# Control chassis fans (Zone 0)
-ipmitool raw 0x30 0x70 0x66 0x01 0x00 0x64  # Set chassis fans to 100%
-sleep 5  # Wait for speed change to take effect
+# 3. Test chassis fans (Zone 0: FAN1-5)
+# Set to minimum speed
+sudo ipmitool raw 0x30 0x70 0x66 0x01 0x00 0x00
+sleep 5
+# Expected RPMs:
+# - FAN1, FAN5: ~980 RPM (high RPM fans)
+# - FAN2-4: ~700 RPM (low RPM fans)
 
-# Control CPU fan (Zone 1)
-ipmitool raw 0x30 0x70 0x66 0x01 0x01 0x64  # Set CPU fan to 100%
-sleep 5  # Wait for speed change to take effect
+# Set to 50% speed
+sudo ipmitool raw 0x30 0x70 0x66 0x01 0x00 0x32
+sleep 5
 
-ipmitool raw 0x30 0x45 0x01 0x00  # Return to automatic mode
+# Set to maximum speed
+sudo ipmitool raw 0x30 0x70 0x66 0x01 0x00 0x64
+sleep 5
+
+# 4. Test CPU fan (Zone 1: FANA)
+# Set to minimum speed
+sudo ipmitool raw 0x30 0x70 0x66 0x01 0x01 0x00
+sleep 5
+# Expected: ~2520 RPM minimum
+
+# Set to 50% speed
+sudo ipmitool raw 0x30 0x70 0x66 0x01 0x01 0x32
+sleep 5
+
+# Set to maximum speed
+sudo ipmitool raw 0x30 0x70 0x66 0x01 0x01 0x64
+sleep 5
+
+# 5. Return to automatic mode
+sudo ipmitool raw 0x30 0x45 0x01 0x00
 ```
 
 Note: The command structure for fan control is:
 ```bash
-ipmitool raw 0x30 0x70 0x66 0x01 [zone] [speed]
-# zone: 0 for chassis fans, 1 for CPU fan
-# speed: 0x00-0x64 (0-100 in hex)
+sudo ipmitool raw 0x30 0x70 0x66 0x01 [zone] [speed]
+# zone: 0x00 for chassis fans (FAN1-5), 0x01 for CPU fan (FANA)
+# speed: 0x00-0x64 (0-100% in hex)
+#   Common hex values:
+#   - 0x00 = 0%   (minimum)
+#   - 0x16 = 25%
+#   - 0x32 = 50%
+#   - 0x48 = 75%
+#   - 0x64 = 100% (maximum)
 ```
 
 ## Advanced Configuration

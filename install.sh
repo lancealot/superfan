@@ -69,14 +69,10 @@ if [ -f "/etc/superfan/config.yaml" ]; then
     echo "Existing config found, creating backup..."
     cp /etc/superfan/config.yaml /etc/superfan/config.yaml.bak
     check_status "Config backup created"
-    
-    echo "Installing new config..."
-    cp config/default.yaml /etc/superfan/config.yaml.new
-    echo "Please check /etc/superfan/config.yaml.new and merge any changes"
-else
-    echo "Installing default configuration..."
-    cp config/default.yaml /etc/superfan/config.yaml
 fi
+
+echo "Installing new configuration..."
+cp config/default.yaml /etc/superfan/config.yaml
 check_status "Config installation handled"
 
 # Install Python package in editable mode for development
