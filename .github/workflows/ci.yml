@@ -2,75 +2,102 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.8", "3.9", "3.10"]
-
+        python-version: ["3.9", "3.12", "3.13"]
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-        
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install .
-        
-    - name: Check formatting with black
-      run: |
-        black --check .
-        
-    - name: Check imports with isort
-      run: |
-        isort --check-only --diff .
-        
-    - name: Lint with flake8
-      run: |
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
-        
-    - name: Type check with mypy
-      run: |
-        mypy src tests
-        
-    - name: Run tests with pytest
-      run: |
-        pytest
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: python -m pip install --upgrade pip && python -m pip install ".[test]" ruff
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: python -m pytest
 
-  build:
-    needs: test
-    runs-on: ubuntu-latest
-    
+  rpm:
+    name: RPM builds and installs (Fedora)
+    runs-on: ubuntu-24.04
+    container: fedora:latest
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.8"
-        
-    - name: Install build dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install build
-        
-    - name: Build package
-      run: |
-        python -m build
-        
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: dist
-        path: dist/
+      - name: Install build tools
+        run: >
+          dnf -y install git rpm-build procps-ng python3-devel python3-pip python3-setuptools python3-wheel
+          python3-pyyaml python3-pytest pyproject-rpm-macros systemd-rpm-macros
+      - uses: actions/checkout@v5
+      - name: Build
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          TOPDIR=/tmp/rpmbuild ./buildrpm.sh
+      - name: Install
+        run: dnf -y install /tmp/rpmbuild/RPMS/noarch/superfan-*.noarch.rpm
+      - name: The installed package works and nothing was started
+        run: |
+          set -eux
+          test "$(command -v superfan)" = /usr/bin/superfan
+          superfan --version
+          superfan --help
+          superfan check --offline
+          test -f /usr/lib/systemd/system/superfan.service
+          test -f /usr/lib/modules-load.d/superfan.conf
+          rpm -q --requires superfan | grep -qx ipmitool
+          rpm -q --requires superfan | grep -q python3-pyyaml
+          # config.yaml is a config file that upgrades must not replace (c = config, n = noreplace)
+          rpm -q --qf '[%{FILEFLAGS:fflags} %{FILENAMES}\n]' superfan | grep -x 'cn /etc/superfan/config.yaml'
+          # not enabled, not running, and nothing in the scriptlets that would do either
+          test ! -e /etc/systemd/system/multi-user.target.wants/superfan.service
+          ! pgrep -f '/usr/bin/superfan run'
+          ! rpm -q --scripts superfan | grep -Eq 'systemctl( +--[a-z-]+)* +(start|enable)( |$)'
+          # the calibration file belongs to the user, not the package
+          ! rpm -ql superfan | grep -q 'calibration\.yaml'
+      - name: The test suite passes on this distribution's Python
+        run: python3 -m pytest
+
+  install-script:
+    name: install.sh and uninstall.sh (Ubuntu)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fresh install
+        run: |
+          set -eux
+          sudo ./install.sh
+          test "$(superfan --version)" = "superfan $(awk '/^Version:/ {print $2}' superfan.spec)"
+          superfan check --offline
+          command -v ipmitool
+          cmp config/default.yaml /etc/superfan/config.yaml
+          test "$(systemctl is-enabled superfan.service || true)" = disabled
+          ! systemctl is-active --quiet superfan.service
+      - name: Reinstalling keeps an edited config
+        run: |
+          set -eux
+          echo "# my edit" | sudo tee -a /etc/superfan/config.yaml
+          sudo ./install.sh
+          tail -n 1 /etc/superfan/config.yaml | grep -qx "# my edit"
+          cmp config/default.yaml /etc/superfan/config.yaml.new
+      - name: Uninstall keeps the config unless purged
+        run: |
+          set -eux
+          sudo ./uninstall.sh
+          ! command -v superfan
+          test ! -e /etc/systemd/system/superfan.service
+          test -f /etc/superfan/config.yaml
+          sudo ./install.sh
+          sudo ./uninstall.sh --purge
+          test ! -e /etc/superfan
