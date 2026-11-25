@@ -1,6 +1,6 @@
-"""Main entry point for superfan package."""
+"""Allow `python -m superfan`."""
 
 from .cli import main
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    raise SystemExit(main())

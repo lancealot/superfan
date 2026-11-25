@@ -1,270 +1,71 @@
-# Superfan Default Configuration
+# superfan configuration
+#
+# Before enabling the service:
+#   1. superfan sensors      list the sensor names that exist on this machine
+#   2. edit the zones below  so every pattern matches something
+#   3. superfan check        confirm it
+#   4. superfan calibrate    measure the fans and find each zone's minimum duty
+#   5. superfan run --dry-run --once
+#
+# Sensor patterns look like source:name, accept * and ? wildcards, and ignore case:
+#   ipmi:CPU Temp               a BMC sensor
+#   hwmon:k10temp/Tctl          a kernel hwmon sensor, written chip/label
+#   hwmon:nvme@nvme0/Composite  the same, pinned to one device
+#   command:gpu0                a command defined under sources.command
 
-# IPMI Settings
-ipmi:
-  # No configuration needed for local IPMI access
-  # For remote systems, uncomment and configure:
-  # host: 192.168.1.100
-  # username: ADMIN
-  # password: ADMIN
+# Seconds between control cycles.
+interval: 10
 
-# Global Temperature Settings
-temperature:
-  hysteresis: 3     # Temperature change required for speed adjustment
+# A temperature must fall this many degrees before a zone slows down again.
+hysteresis: 3
 
-# Fan Control Settings
-fans:
-  polling_interval: 60      # Seconds between temperature checks during normal operation
-  monitor_interval: 30      # Faster polling interval when monitoring (seconds)
-  ramp_step: 5             # Maximum fan speed change per interval
+sources:
+  ipmi: true
+  hwmon: true
+  # Any command that prints a temperature in degrees C, one per line.
+  # command:
+  #   gpu0: nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits -i 0
 
-  # Board-specific parameters (populated by learning phase)
-  board_config:
-    # Default values for new installations
-    min_speed: 0           # Let learning phase discover true minimum
-    max_speed: 100         # Maximum fan speed
-    
-    # Fan speed steps and RPM ranges (populated during learning)
-    speed_steps:           # H12 board speed steps
-      off:                 # 0x00 step (0%)
-        threshold: 0
-        hex_speed: "0x00"
-        needs_prefix: false
-        rpm_ranges:
-          chassis:
-            high_rpm:
-              min: 840
-              max: 1120
-              stable_rpm: 980
-              avg: 980
-            low_rpm:
-              min: 700
-              max: 980
-              stable_rpm: 840
-              avg: 840
-          cpu:
-            cpu:
-              min: 2940
-              max: 3640
-              stable_rpm: 3290
-              avg: 3290
-      very_low:           # 0x10 step (12%)
-        threshold: 12
-        hex_speed: "0x10"
-        needs_prefix: false
-        rpm_ranges:
-          chassis:
-            high_rpm:
-              min: 1400
-              max: 1900  # Increased to allow for variation
-              stable_rpm: 1750
-              avg: 1750
-            low_rpm:
-              min: 1260
-              max: 1500  # Increased to allow for variation
-              stable_rpm: 1400
-              avg: 1400
-          cpu:
-            cpu:
-              min: 3290
-              max: 3640
-              stable_rpm: 3640
-              avg: 3640
-      low:                # 0x20 step (25%)
-        threshold: 25
-        hex_speed: "0x20"
-        needs_prefix: false
-        rpm_ranges:
-          chassis:
-            high_rpm:
-              min: 1680
-              max: 1820
-              stable_rpm: 1750
-              avg: 1750
-            low_rpm:
-              min: 1400
-              max: 1400
-              stable_rpm: 1400
-              avg: 1400
-          cpu:
-            cpu:
-              min: 3640
-              max: 3640
-              stable_rpm: 3640
-              avg: 3640
-      medium:             # 0x40 step (50%)
-        threshold: 50
-        hex_speed: "0x40"
-        needs_prefix: false
-        rpm_ranges:
-          chassis:
-            high_rpm:
-              min: 1750
-              max: 1820
-              stable_rpm: 1820
-              avg: 1820
-            low_rpm:
-              min: 1400
-              max: 1400
-              stable_rpm: 1400
-              avg: 1400
-          cpu:
-            cpu:
-              min: 3640
-              max: 3640
-              stable_rpm: 3640
-              avg: 3640
-      high:               # 0x60 step (75%)
-        threshold: 75
-        hex_speed: "0x60"
-        needs_prefix: false
-        rpm_ranges:
-          chassis:
-            high_rpm:
-              min: 1820
-              max: 1820
-              stable_rpm: 1820
-              avg: 1820
-            low_rpm:
-              min: 1400
-              max: 1400
-              stable_rpm: 1400
-              avg: 1400
-          cpu:
-            cpu:
-              min: 3640
-              max: 3640
-              stable_rpm: 3640
-              avg: 3640
-      full:               # 0xFF step (100%)
-        threshold: 100
-        hex_speed: "0xff"
-        needs_prefix: false
-        rpm_ranges:
-          chassis:
-            high_rpm:
-              min: 1600
-              max: 1900
-              stable_rpm: 1750
-              avg: 1750
-            low_rpm:
-              min: 1300
-              max: 1500
-              stable_rpm: 1400
-              avg: 1400
-          cpu:
-            cpu:
-              min: 3400
-              max: 3800
-              stable_rpm: 3640
-              avg: 3640
-            
-    # Temperature response characteristics (populated during learning)
-    thermal_response:
-      chassis:  # System and peripheral temperature response
-        low:    # Response at low speed
-          initial_temp: null
-          final_temp: null
-          temp_change: null
-          time_to_stable: null
-        medium:
-          initial_temp: null
-          final_temp: null
-          temp_change: null
-          time_to_stable: null
-        high:
-          initial_temp: null
-          final_temp: null
-          temp_change: null
-          time_to_stable: null
-        full:
-          initial_temp: null
-          final_temp: null
-          temp_change: null
-          time_to_stable: null
-      cpu:     # CPU and VRM temperature response
-        low:
-          initial_temp: null
-          final_temp: null
-          temp_change: null
-          time_to_stable: null
-        medium:
-          initial_temp: null
-          final_temp: null
-          temp_change: null
-          time_to_stable: null
-        high:
-          initial_temp: null
-          final_temp: null
-          temp_change: null
-          time_to_stable: null
-        full:
-          initial_temp: null
-          final_temp: null
-          temp_change: null
-          time_to_stable: null
-  
-  # Hardware Fan Control Zones
-  zones:
-    chassis:  # Zone 0: Controls FAN1-5 as a group
-      enabled: true
-      # H12 Fan RPM ranges at different speed steps:
-      # 0xFF (100%):  FAN1/5=1820, FAN2-4=1400
-      # 0x60 (75%):   FAN1/5=1680, FAN2-4=1400
-      # 0x40 (50%):   FAN1/5=1680, FAN2-4=1400
-      # 0x20 (0%):    Let learning discover minimum
-      critical_max: 75  # Emergency threshold - will set fans to 100%
-      warning_max: 65   # Warning threshold - will increase fan speed
-      target: 55        # Desired operating temperature
-      curve:
-        - [0, 12]    # At target temp -> minimum stable speed
-        - [5, 25]    # 5°C over target -> low speed
-        - [10, 50]   # 10°C over target -> medium speed
-        - [15, 75]   # 15°C over target -> high speed
-        - [20, 100]  # 20°C over target -> full speed
-      # All system temperatures that affect chassis cooling
-      sensors:
-        - System* Temp*
-        - Peripheral* Temp*
-        - P1_DIMM*
-        - NVMe_*
-        - M2_SSD*
-        
-    cpu:  # Zone 1: Controls FANA (CPU fan)
-      enabled: true
-      # H12 CPU fan (FANA) RPM ranges at different speed steps:
-      # 0xFF (100%):  3640 RPM
-      # 0x60 (75%):   3640 RPM
-      # 0x40 (50%):   3640 RPM
-      # 0x20 (0%):    Let learning discover minimum
-      critical_max: 85  # Emergency threshold - will set fans to 100%
-      warning_max: 75   # Warning threshold - will increase fan speed
-      target: 65        # Desired operating temperature
-      curve:
-        - [0, 12]    # At target temp -> minimum stable speed
-        - [5, 25]    # 5°C over target -> low speed
-        - [10, 50]   # 10°C over target -> medium speed
-        - [15, 75]   # 15°C over target -> high speed
-        - [20, 100]  # 20°C over target -> full speed
-      # CPU-specific temperatures
-      sensors:
-        - "CPU* Temp*"
-        - "*CPU*VRM* Temp*"
-        - "*SOC*VRM* Temp*"
-        - "*VRM* Temp*"
+# A zone is one BMC fan zone. On most Supermicro boards BMC zone 0 drives the
+# numbered headers (FAN1, FAN2, ...) and zone 1 the lettered ones (FANA, FANB, ...).
+# Name each zone after what its fans cool. Every input has its own curve of
+# [temperature in C, duty in %] points; the zone runs at the highest duty any input asks for.
+zones:
+  cpu:
+    bmc_zone: 1
+    inputs:
+      - sensors: ["ipmi:CPU*Temp"]
+        curve: [[50, 20], [65, 40], [75, 70], [80, 100]]
+        critical: 85          # at or above this, every zone goes to full speed
+      - sensors: ["ipmi:*VRM*"]
+        curve: [[60, 20], [80, 60], [95, 100]]
+        required: false       # do not fail safe if this board has no such sensor
 
-# Safety Settings
+  chassis:
+    bmc_zone: 0
+    inputs:
+      - sensors: ["ipmi:System Temp", "ipmi:Peripheral Temp"]
+        curve: [[40, 20], [55, 40], [65, 70], [70, 100]]
+        critical: 75
+      - sensors: ["ipmi:*DIMM*"]
+        curve: [[50, 20], [70, 60], [80, 100]]
+        required: false
+      - sensors: ["hwmon:nvme/*"]
+        curve: [[45, 20], [60, 50], [70, 100]]
+        required: false
+      # A graphics card cooled by the chassis fans:
+      # - sensors: ["command:gpu0"]          # NVIDIA, with the command above
+      #   curve: [[50, 25], [70, 60], [85, 100]]
+      # - sensors: ["hwmon:amdgpu/*"]        # AMD
+      #   curve: [[50, 25], [70, 60], [85, 100]]
+
 safety:
-  watchdog_timeout: 90    # Seconds before watchdog triggers (1.5x polling_interval)
-  min_temp_readings: 2    # Minimum required readings for reliability
-  restore_on_exit: true   # Restore BMC control on program exit
-  emergency_timeout: 60   # Seconds before exiting emergency state if temps normal
-  verify_commands: true   # Enable command response validation
-  min_working_fans: 1     # Minimum number of working fans required
-  
-# Logging Configuration
-logging:
-  level: INFO  # Only show important messages
-  file: superfan.log
-  max_size: 10MB
-  backup_count: 3
+  failsafe_duty: 100   # duty used when a sensor is missing, a fan fails or a temperature is critical
+  fault_hold: 60       # seconds to stay at the failsafe duty after such a condition clears
+  max_failures: 3      # give up (and hand the fans back to the BMC) after this many failed cycles
+
+bmc:
+  command: ipmitool
+  timeout: 30
+  # Fan mode to hand back to the BMC on exit: previous, standard, optimal or heavy_io.
+  exit_mode: previous
