@@ -1,63 +1,53 @@
-# Disable debug package
-%global debug_package %{nil}
-
 Name:           superfan
-Version:        0.1.0
+Version:        0.2.0
 Release:        1%{?dist}
-Summary:        Intelligent fan control for Supermicro servers
-License:        GPL-3.0
-URL:            https://github.com/yourusername/superfan
+Summary:        Temperature-driven fan control for Supermicro servers
+License:        GPL-3.0-only
+URL:            https://github.com/lancealot/superfan
 Source0:        %{name}-%{version}.tar.gz
+BuildArch:      noarch
 
 BuildRequires:  python3-devel
 BuildRequires:  python3-pip
 BuildRequires:  python3-setuptools
-Requires:       python3
-Requires:       python3-pip
+BuildRequires:  python3-wheel
+BuildRequires:  python3-pyyaml
+BuildRequires:  pyproject-rpm-macros
+BuildRequires:  systemd-rpm-macros
 Requires:       ipmitool
-Requires:       nvme-cli
-Requires:       systemd
+Requires:       python3-pyyaml
+%{?systemd_requires}
 
 %description
-A Python utility for intelligent control of Supermicro server fan speeds based on 
-component temperatures and user preferences. Supports multiple Supermicro generations
-(X9/X10/X11/X13) with features like automated fan speed control, NVMe drive temperature
-monitoring, zone-based fan control, and custom fan curves.
+Superfan sets the fan duty cycle of each BMC fan zone on a Supermicro board
+from the temperatures of whatever those fans cool: BMC sensors, any device the
+kernel exposes through hwmon (CPUs, drives, GPUs, add-in cards) and any command
+that prints a temperature. It hands fan control back to the BMC whenever it
+stops, and fails towards full speed when a sensor or fan goes missing.
+
+The service is installed disabled. Run "superfan sensors", edit
+/etc/superfan/config.yaml, run "superfan calibrate", then enable it.
 
 %prep
 %autosetup
 
 %build
-%py3_build
+%pyproject_wheel
 
 %install
-# Override default installation path to use /usr/local/bin
-PYTHONPATH=%{buildroot}%{python3_sitelib} \
-    %{__python3} setup.py install --skip-build --root %{buildroot} --prefix=/usr/local
+%pyproject_install
+%pyproject_save_files superfan
+install -D -p -m 0644 config/default.yaml %{buildroot}%{_sysconfdir}/superfan/config.yaml
+install -D -p -m 0644 superfan.service %{buildroot}%{_unitdir}/superfan.service
+install -d %{buildroot}%{_modulesloaddir}
+printf 'ipmi_devintf\nipmi_si\n' > %{buildroot}%{_modulesloaddir}/superfan.conf
 
-# Create config directory
-mkdir -p %{buildroot}%{_sysconfdir}/superfan
-
-# Install config file
-install -p -m 644 config/default.yaml %{buildroot}%{_sysconfdir}/superfan/config.yaml
-
-# Install systemd service
-mkdir -p %{buildroot}%{_unitdir}
-install -p -m 644 superfan.service %{buildroot}%{_unitdir}/superfan.service
-
-# Create modules-load.d config
-mkdir -p %{buildroot}%{_sysconfdir}/modules-load.d
-echo "ipmi_devintf" > %{buildroot}%{_sysconfdir}/modules-load.d/superfan.conf
-echo "ipmi_si" >> %{buildroot}%{_sysconfdir}/modules-load.d/superfan.conf
+%check
+%pyproject_check_import
 
 %post
 %systemd_post superfan.service
-# Load IPMI modules
-modprobe ipmi_devintf >/dev/null 2>&1 || :
-modprobe ipmi_si >/dev/null 2>&1 || :
-# Enable and start the service
-systemctl enable superfan.service >/dev/null 2>&1 || :
-systemctl start superfan.service >/dev/null 2>&1 || :
+modprobe -a ipmi_devintf ipmi_si >/dev/null 2>&1 || :
 
 %preun
 %systemd_preun superfan.service
@@ -65,17 +55,18 @@ systemctl start superfan.service >/dev/null 2>&1 || :
 %postun
 %systemd_postun_with_restart superfan.service
 
-%files
+%files -f %{pyproject_files}
 %license LICENSE
-%doc README.md USAGE.md
-/usr/local/lib/python3.12/site-packages/superfan
-/usr/local/lib/python3.12/site-packages/superfan-%{version}*
-/usr/local/bin/superfan
+%doc README.md CHANGELOG.md
+%{_bindir}/superfan
+%{_unitdir}/superfan.service
+%{_modulesloaddir}/superfan.conf
 %dir %{_sysconfdir}/superfan
 %config(noreplace) %{_sysconfdir}/superfan/config.yaml
-%{_unitdir}/superfan.service
-%config(noreplace) %{_sysconfdir}/modules-load.d/superfan.conf
 
 %changelog
-* Wed Jan 24 2024 System Administrator <root@localhost> - 0.1.0-1
-- Initial RPM release
+* Wed Nov 25 2026 Superfan maintainers <noreply@github.com> - 0.2.0-1
+- Rewrite: sensors from IPMI, hwmon and commands; per-zone curves; calibration
+- Install under the system Python path instead of /usr/local
+- Do not enable or start the service on install
+- Require python3-pyyaml; drop the python3-pip requirement

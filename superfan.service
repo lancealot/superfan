@@ -1,24 +1,30 @@
 [Unit]
-Description=Superfan - Intelligent Supermicro server fan control
-After=network.target
-StartLimitIntervalSec=0
+Description=Superfan - temperature-driven fan control for Supermicro servers
+Documentation=https://github.com/lancealot/superfan
+After=systemd-modules-load.service
+ConditionPathExists=/etc/superfan/config.yaml
 
 [Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/superfan
-Restart=always
-RestartSec=5
-# Give the service time to read sensors and adjust fans
-TimeoutStartSec=30
-TimeoutStopSec=30
+Type=notify
+ExecStart=/usr/bin/superfan run
+# Runs after every stop, including a crash or a kill: makes sure the BMC has the fans back.
+ExecStopPost=-/usr/bin/superfan release
+Restart=on-failure
+RestartSec=10
+# 78 is a configuration error; restarting cannot fix that.
+RestartPreventExitStatus=78
+# The daemon pings systemd twice per cycle. If the pings stop, systemd kills it and ExecStopPost runs.
+WatchdogSec=120
+TimeoutStartSec=120
+TimeoutStopSec=90
+# /run/superfan holds the status file `superfan status` reads and the BMC's previous fan mode.
+RuntimeDirectory=superfan
+RuntimeDirectoryPreserve=yes
 
-# Security settings
-ProtectSystem=full
-ProtectHome=read-only
-PrivateTmp=true
 NoNewPrivileges=true
-ProtectKernelTunables=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
 ProtectControlGroups=true
 RestrictNamespaces=true
 

@@ -1,123 +1,68 @@
 #!/bin/bash
+# Install superfan from this checkout, for systems where the RPM is not an option.
+#
+# Puts the program in its own virtual environment under /opt/superfan, links
+# /usr/local/bin/superfan to it, and installs the config and the systemd unit.
+# An existing /etc/superfan/config.yaml is never overwritten.
+# The service is NOT enabled or started: calibrate first (see the README).
+set -euo pipefail
+cd "$(dirname "$0")"
 
-# Exit on error
-set -e
+PREFIX=/opt/superfan
+BIN=/usr/local/bin/superfan
+ETC=/etc/superfan
+UNIT=/etc/systemd/system/superfan.service
 
-echo "Starting Superfan installation..."
-
-# Function to check if command succeeded
-check_status() {
-    if [ $? -eq 0 ]; then
-        echo "✓ $1"
-    else
-        echo "✗ $1 failed"
-        exit 1
-    fi
-}
-
-# Check if running as root/sudo
-if [ "$EUID" -ne 0 ]; then
-    echo "Please run as root (use sudo)"
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Please run as root: sudo ./install.sh" >&2
     exit 1
 fi
 
-# Detect package manager
+echo "Installing system packages..."
 if command -v apt-get >/dev/null 2>&1; then
-    PKG_MANAGER="apt-get"
-    echo "Detected Debian-based system (using apt-get)"
+    apt-get update -qq
+    apt-get install -y -qq ipmitool python3 python3-venv
 elif command -v dnf >/dev/null 2>&1; then
-    PKG_MANAGER="dnf"
-    echo "Detected Red Hat-based system (using dnf)"
+    dnf install -y -q ipmitool python3
 elif command -v yum >/dev/null 2>&1; then
-    PKG_MANAGER="yum"
-    echo "Detected Red Hat-based system (using yum)"
+    yum install -y -q ipmitool python3
 else
-    echo "Unsupported package manager. Please install dependencies manually."
-    exit 1
+    echo "No supported package manager found; install ipmitool and python3 (3.9 or newer) yourself." >&2
 fi
 
-# Install system dependencies
-echo "Installing system dependencies..."
-if [ "$PKG_MANAGER" = "apt-get" ]; then
-    apt-get update
-    apt-get install -y ipmitool nvme-cli python3-pip
-elif [ "$PKG_MANAGER" = "dnf" ] || [ "$PKG_MANAGER" = "yum" ]; then
-    $PKG_MANAGER install -y ipmitool nvme-cli python3-pip
-fi
-check_status "System dependencies installed"
+echo "Installing superfan into $PREFIX..."
+python3 -m venv "$PREFIX/venv"
+"$PREFIX/venv/bin/pip" install --quiet --upgrade .
+ln -sf "$PREFIX/venv/bin/superfan" "$BIN"
 
-# Load IPMI kernel modules
-echo "Loading IPMI kernel modules..."
-modprobe ipmi_devintf
-modprobe ipmi_si
-check_status "Kernel modules loaded"
+echo "Setting up the IPMI kernel modules..."
+printf 'ipmi_devintf\nipmi_si\n' > /etc/modules-load.d/superfan.conf
+modprobe -a ipmi_devintf ipmi_si 2>/dev/null \
+    || echo "  could not load ipmi_devintf/ipmi_si now (no BMC here?); they will be tried again at boot"
 
-# Add modules to load at boot
-echo "Configuring kernel modules to load at boot..."
-echo "ipmi_devintf" > /etc/modules-load.d/superfan.conf
-echo "ipmi_si" >> /etc/modules-load.d/superfan.conf
-check_status "Boot configuration updated"
-
-# Create config directory
-echo "Creating configuration directory..."
-mkdir -p /etc/superfan
-check_status "Config directory created"
-
-# Handle config installation/updates
-echo "Installing/updating configuration..."
-if [ -f "/etc/superfan/config.yaml" ]; then
-    echo "Existing config found, creating backup..."
-    cp /etc/superfan/config.yaml /etc/superfan/config.yaml.bak
-    check_status "Config backup created"
+install -d -m 0755 "$ETC"
+if [ ! -f "$ETC/config.yaml" ]; then
+    install -m 0644 config/default.yaml "$ETC/config.yaml"
+    echo "Installed $ETC/config.yaml"
+elif ! cmp -s config/default.yaml "$ETC/config.yaml"; then
+    install -m 0644 config/default.yaml "$ETC/config.yaml.new"
+    echo "Kept your $ETC/config.yaml; the current default is in $ETC/config.yaml.new"
 fi
 
-echo "Installing new configuration..."
-cp config/default.yaml /etc/superfan/config.yaml
-check_status "Config installation handled"
-
-# Install Python package in editable mode for development
-echo "Installing Python package..."
-pip install -e .
-check_status "Python package installed"
-
-# Ensure correct permissions
-echo "Setting permissions..."
-chown -R root:root /etc/superfan
-chmod 644 /etc/superfan/config.yaml*
-check_status "Permissions set"
-
-# Install systemd service
-echo "Installing systemd service..."
-cp superfan.service /etc/systemd/system/
-systemctl daemon-reload
-check_status "Systemd service installed"
-
-# Enable and start service
-echo "Enabling and starting superfan service..."
-systemctl enable superfan
-systemctl start superfan
-check_status "Service enabled and started"
-
-# Verify installation
-echo "Verifying installation..."
-if systemctl is-active --quiet superfan; then
-    echo "✓ Superfan service is running"
-else
-    echo "✗ Service failed to start"
-    exit 1
+sed "s#/usr/bin/superfan#$BIN#g" superfan.service > "$UNIT"
+chmod 0644 "$UNIT"
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    if systemctl is-active --quiet superfan.service; then
+        echo "Restarting the running service..."
+        systemctl restart superfan.service
+    fi
 fi
 
-if [ -f "/etc/superfan/config.yaml" ]; then
-    echo "✓ Configuration file is present"
-else
-    echo "✗ Configuration file is missing"
-    exit 1
-fi
-
-echo "✓ Superfan has been successfully installed"
 echo
-echo "Usage:"
-echo "  - View service status: systemctl status superfan"
-echo "  - View logs: journalctl -u superfan"
-echo "  - Edit config: nano /etc/superfan/config.yaml"
-echo "  - Restart service: systemctl restart superfan"
+echo "superfan $("$BIN" --version | awk '{print $2}') installed. The service is not enabled yet. Next:"
+echo "  superfan sensors                    # what this machine can measure"
+echo "  \$EDITOR $ETC/config.yaml   # make every pattern match"
+echo "  superfan check"
+echo "  superfan calibrate"
+echo "  systemctl enable --now superfan"

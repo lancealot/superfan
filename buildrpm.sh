@@ -1,81 +1,39 @@
 #!/bin/bash
+# Build the superfan RPM from this checkout.
+#
+#   ./buildrpm.sh                 result under ~/rpmbuild/RPMS/noarch/
+#   TOPDIR=/some/dir ./buildrpm.sh
+#
+# Needs: rpm-build python3-devel python3-pip python3-setuptools python3-wheel
+#        python3-pyyaml pyproject-rpm-macros systemd-rpm-macros
+set -euo pipefail
+cd "$(dirname "$0")"
 
-# Exit on error
-set -e
+if ! command -v rpmbuild >/dev/null 2>&1; then
+    echo "rpmbuild not found. Install the build tools first:" >&2
+    echo "  sudo dnf install rpm-build python3-devel python3-pip python3-setuptools python3-wheel \\" >&2
+    echo "                   python3-pyyaml pyproject-rpm-macros systemd-rpm-macros" >&2
+    exit 1
+fi
 
-# Function to check if command succeeded
-check_status() {
-    if [ $? -eq 0 ]; then
-        echo "✓ $1"
-    else
-        echo "✗ $1 failed"
-        exit 1
+VERSION=$(awk '/^Version:/ {print $2}' superfan.spec)
+TOPDIR=${TOPDIR:-$HOME/rpmbuild}
+TARBALL="$TOPDIR/SOURCES/superfan-$VERSION.tar.gz"
+mkdir -p "$TOPDIR"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "note: uncommitted changes are not included; the RPM is built from the last commit" >&2
     fi
-}
+    git archive --format=tar.gz --prefix="superfan-$VERSION/" -o "$TARBALL" HEAD
+else
+    tar --exclude-vcs --exclude='*.egg-info' --exclude=__pycache__ --exclude=build --exclude=dist \
+        --transform "s,^\.,superfan-$VERSION," -czf "$TARBALL" .
+fi
 
-# Check for required tools
-check_required_tools() {
-    local missing_tools=()
-    
-    # Check for rpm-build
-    if ! command -v rpmbuild >/dev/null 2>&1; then
-        missing_tools+=("rpm-build")
-    fi
-    
-    # Check for rpmdevtools
-    if ! command -v rpmdev-setuptree >/dev/null 2>&1; then
-        missing_tools+=("rpmdevtools")
-    fi
-    
-    # If any tools are missing, print message and exit
-    if [ ${#missing_tools[@]} -ne 0 ]; then
-        echo "Error: Required tools are missing. Please install:"
-        printf '  - %s\n' "${missing_tools[@]}"
-        echo
-        echo "On Red Hat-based systems (RHEL/CentOS/Fedora), install with:"
-        echo "  sudo dnf install ${missing_tools[*]}"
-        echo
-        echo "On Debian-based systems (Ubuntu/Debian), install with:"
-        echo "  sudo apt-get install ${missing_tools[*]}"
-        exit 1
-    fi
-}
+cp superfan.spec "$TOPDIR/SPECS/"
+rpmbuild --define "_topdir $TOPDIR" -ba "$TOPDIR/SPECS/superfan.spec"
 
-echo "Starting RPM build process for Superfan..."
-
-# Check for required tools before proceeding
-echo "Checking for required tools..."
-check_required_tools
-check_status "Required tools check passed"
-
-# Create necessary directories
-echo "Creating RPM build directories..."
-mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-check_status "RPM directories created"
-
-# Create source tarball
-echo "Creating source tarball..."
-VERSION=$(grep "Version:" superfan.spec | awk '{print $2}')
-cd ..
-mkdir -p superfan-${VERSION}
-cp -r superfan/* superfan-${VERSION}/
-tar czf ~/rpmbuild/SOURCES/superfan-${VERSION}.tar.gz superfan-${VERSION}/
-rm -rf superfan-${VERSION}
-cd superfan/
-check_status "Source tarball created"
-
-# Copy spec file
-echo "Copying spec file..."
-cp superfan.spec ~/rpmbuild/SPECS/
-check_status "Spec file copied"
-
-# Build RPM
-echo "Building RPM..."
-rpmbuild -ba ~/rpmbuild/SPECS/superfan.spec
-check_status "RPM built successfully"
-
-echo "✓ RPM build process completed"
 echo
-echo "RPM files can be found in:"
-echo "  - Binary RPM: ~/rpmbuild/RPMS/$(uname -m)/"
-echo "  - Source RPM: ~/rpmbuild/SRPMS/"
+echo "Built:"
+find "$TOPDIR/RPMS" "$TOPDIR/SRPMS" -name "superfan-$VERSION-*.rpm" | sed 's/^/  /'
