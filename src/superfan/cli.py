@@ -220,7 +220,11 @@ def cmd_calibrate(args) -> int:
         if not sys.stdin.isatty():
             print("Refusing to start without confirmation; pass --yes.", file=sys.stderr)
             return 2
-        if input("Start? [y/N] ").strip().lower() not in ("y", "yes"):
+        try:
+            answer = input("Start? [y/N] ")
+        except (EOFError, KeyboardInterrupt):
+            answer = ""
+        if answer.strip().lower() not in ("y", "yes"):
             return 1
     lock = _lock_or_explain(cfg)
     if lock is None:
@@ -301,6 +305,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     except BmcError as exc:
         print("error: %s" % exc, file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        return 130
 
 
 if __name__ == "__main__":

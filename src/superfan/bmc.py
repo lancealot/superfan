@@ -42,6 +42,10 @@ class BmcError(Exception):
     """An ipmitool call failed, timed out, or returned something unusable."""
 
 
+class BmcTimeout(BmcError):
+    """An ipmitool call did not finish in time. Not retried: the next cycle will try again."""
+
+
 @dataclass(frozen=True)
 class SensorRow:
     name: str
@@ -118,7 +122,7 @@ class Bmc:
         except FileNotFoundError as exc:
             raise BmcError("%s: command not found" % self.command[0]) from exc
         except subprocess.TimeoutExpired as exc:
-            raise BmcError("`%s` timed out after %gs" % (shown, self.timeout)) from exc
+            raise BmcTimeout("`%s` timed out after %gs" % (shown, self.timeout)) from exc
         except OSError as exc:
             raise BmcError("`%s` could not run: %s" % (shown, exc)) from exc
         if proc.returncode != 0:
@@ -136,6 +140,8 @@ class Bmc:
             try:
                 out = self._run(args)
                 break
+            except BmcTimeout:
+                raise
             except BmcError as exc:
                 if attempt == self.retries:
                     raise

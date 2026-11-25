@@ -50,7 +50,8 @@ jobs:
       - name: The installed package works and nothing was started
         run: |
           set -eux
-          test "$(command -v superfan)" = /usr/bin/superfan
+          test -x /usr/bin/superfan
+          test "$(readlink -f "$(command -v superfan)")" = "$(readlink -f /usr/bin/superfan)"
           superfan --version
           superfan --help
           superfan check --offline

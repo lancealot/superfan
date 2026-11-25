@@ -159,6 +159,14 @@ def test_status_exit_code_tells_scripts_whether_the_daemon_is_alive(tmp_path):
     assert "NOT RUNNING" in run_cli("status", "--status-file", path).stdout
 
 
+def test_watch_without_a_terminal_says_so_instead_of_crashing(tmp_path):
+    path = str(tmp_path / "status.json")
+    write_status(path, sample())
+    result = run_cli("status", "--watch", "--status-file", path, stdin=subprocess.DEVNULL)
+    assert result.returncode == 2 and "--watch needs a terminal" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def test_status_json_is_the_raw_report(tmp_path):
     path = str(tmp_path / "status.json")
     write_status(path, sample())

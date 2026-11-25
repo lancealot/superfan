@@ -69,6 +69,7 @@ def test_a_0_1_config_is_recognised_and_explained():
     (lambda d: d["zones"]["cpu"]["inputs"][0].update(curve="steep"), "curve must be a list"),
     (lambda d: d["zones"]["cpu"]["inputs"][0].update(required="yes"), "required must be true or false"),
     (lambda d: d.update(bmc={"exit_mode": "full"}), "exit_mode must be one of"),
+    (lambda d: d.update(bmc={"timeout": 300}), "timeout must be between 0.1 and 60"),
     (lambda d: d.update(safety={"failsafe_duty": 0}), "failsafe_duty must be between 1 and 100"),
     (lambda d: d.update(sources={"hwmon": False}) or d["zones"]["cpu"]["inputs"][0].update(sensors=["hwmon:nvme/*"]),
      "uses the hwmon source, which is turned off"),

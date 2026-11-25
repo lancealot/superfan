@@ -248,8 +248,7 @@ class Controller:
         }
 
     def cycle(self) -> Optional[dict]:
-        snap = collect(self.cfg, self.bmc, self.spinning)
-        self.notify("WATCHDOG=1")
+        snap = collect(self.cfg, self.bmc, self.spinning, tick=lambda: self.notify("WATCHDOG=1"))
         if self.stop is not None and self.stop.is_set():
             return None
         plan = self.decide(snap)

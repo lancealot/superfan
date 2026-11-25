@@ -216,7 +216,8 @@ def parse_config(data: Any, path: str = "<config>") -> Config:
     _unknown(bmc, {"command", "timeout", "retries", "exit_mode"}, "bmc", problems)
     if bmc.get("command") is not None:
         cfg.bmc.command = _argv(bmc["command"], "bmc.command", problems) or ["ipmitool"]
-    cfg.bmc.timeout = _number(bmc, "timeout", 30.0, problems, "bmc", lo=0.1)
+    # Kept well under the unit's WatchdogSec so one stuck call cannot look like a hung daemon.
+    cfg.bmc.timeout = _number(bmc, "timeout", 30.0, problems, "bmc", lo=0.1, hi=60)
     cfg.bmc.retries = _number(bmc, "retries", 2, problems, "bmc", lo=0, hi=10, integer=True)
     exit_mode = bmc.get("exit_mode", "previous")
     if exit_mode not in EXIT_MODE_CHOICES:

@@ -18,7 +18,7 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
-from typing import Collection, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Collection, Dict, List, Optional, Sequence, Tuple
 
 from .bmc import Bmc, BmcError
 from .config import Config
@@ -141,8 +141,12 @@ def read_command(name: str, argv: Sequence[str], timeout: float = COMMAND_TIMEOU
     return [r for r in found if plausible(r.value)]
 
 
-def collect(cfg: Config, bmc: Bmc, known_fans: Collection[str] = ()) -> Snapshot:
-    """Read every enabled source once. A failing source never stops the others."""
+def collect(cfg: Config, bmc: Bmc, known_fans: Collection[str] = (),
+            tick: Callable[[], object] = lambda: None) -> Snapshot:
+    """Read every enabled source once. A failing source never stops the others.
+
+    `tick` is called after each source, so a slow one cannot starve the watchdog.
+    """
     snap = Snapshot()
     if cfg.ipmi:
         try:
@@ -160,6 +164,7 @@ def collect(cfg: Config, bmc: Bmc, known_fans: Collection[str] = ()) -> Snapshot
                     snap.fans.append(Fan(row.name, row.value, row.status))
                 elif row.value is None and row.name in known_fans:
                     snap.fans.append(Fan(row.name, None, row.status))
+        tick()
     if cfg.hwmon:
         try:
             snap.temps.extend(read_hwmon(cfg.hwmon_root))
@@ -170,4 +175,5 @@ def collect(cfg: Config, bmc: Bmc, known_fans: Collection[str] = ()) -> Snapshot
             snap.temps.extend(read_command(name, argv))
         except SourceError as exc:
             snap.errors["command:" + name] = str(exc)
+        tick()
     return snap

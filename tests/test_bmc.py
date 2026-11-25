@@ -70,6 +70,14 @@ def test_a_hung_ipmitool_times_out_instead_of_blocking(fake):
     assert time.monotonic() - started < 10
 
 
+def test_a_timeout_is_not_retried_within_the_same_call(fake):
+    fake.update(lambda s: s.update(hang={"duty_set": 30}))
+    started = time.monotonic()
+    with pytest.raises(BmcError, match="timed out"):
+        fake.client(timeout=0.5, retries=5).set_duty(0, 30)
+    assert time.monotonic() - started < 5 and len(fake.log) == 1
+
+
 def test_transient_failures_are_retried(fake):
     fake.update(lambda s: s.update(fail={"duty_set": 2}))
     fake.client(retries=2).set_duty(0, 30)

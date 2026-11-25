@@ -165,7 +165,7 @@ safety:
 
 bmc:
   command: ipmitool
-  timeout: 30          # seconds before an ipmitool call is abandoned
+  timeout: 30          # seconds before an ipmitool call is abandoned (at most 60)
   exit_mode: previous  # fan mode to hand back: previous, standard, optimal or heavy_io
 ```
 

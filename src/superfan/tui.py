@@ -7,6 +7,7 @@ reads the status file the daemon publishes.
 from __future__ import annotations
 
 import curses
+import sys
 import time
 from typing import Dict
 
@@ -66,7 +67,13 @@ def _loop(screen, status_file: str, refresh: float) -> int:
 
 
 def watch(status_file: str, refresh: float = 1.0) -> int:
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        print("--watch needs a terminal; use `superfan status` for plain output", file=sys.stderr)
+        return 2
     try:
         return curses.wrapper(_loop, status_file, refresh)
     except KeyboardInterrupt:
         return 0
+    except curses.error as exc:
+        print("cannot draw the dashboard on this terminal (%s); use `superfan status`" % exc, file=sys.stderr)
+        return 2
